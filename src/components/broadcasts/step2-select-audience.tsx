@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { CustomField, Tag } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -13,8 +13,128 @@ import {
   ArrowRight,
   ArrowLeft,
   X,
+  FileSpreadsheet,
+  CheckCircle2,
+  Trash2,
+  Download,
+  AlertCircle,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
+
+/** Clean and normalize phone numbers, formatting Indian 10-digit mobile numbers as E.164 (+91...) */
+function cleanPhoneNumber(raw: string): string {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) return '';
+
+  // 10 digits (Standard Indian mobile number e.g. 9876543210)
+  if (digits.length === 10) {
+    return `+91${digits}`;
+  }
+  // 11 digits starting with 0 (e.g. 09876543210)
+  if (digits.length === 11 && digits.startsWith('0')) {
+    return `+91${digits.slice(1)}`;
+  }
+  // 12 digits starting with 91 (e.g. 919876543210)
+  if (digits.length === 12 && digits.startsWith('91')) {
+    return `+${digits}`;
+  }
+  // International format with leading +
+  if (trimmed.startsWith('+')) {
+    return `+${digits}`;
+  }
+  return `+${digits}`;
+}
+
+function parseCsvRow(line: string): string[] {
+  const values: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"' || char === "'") {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      values.push(cur.trim().replace(/^["']|["']$/g, ''));
+      cur = '';
+    } else {
+      cur += char;
+    }
+  }
+  values.push(cur.trim().replace(/^["']|["']$/g, ''));
+  return values;
+}
+
+function parseAudienceCsv(text: string): { phone: string; name?: string }[] {
+  const lines = text.trim().split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length < 2) return [];
+
+  const headers = parseCsvRow(lines[0]).map((h) =>
+    h.trim().toLowerCase().replace(/["']/g, '')
+  );
+
+  let phoneIdx = headers.findIndex((h) =>
+    [
+      'phone',
+      'phonenumber',
+      'phone_number',
+      'phone number',
+      'mobile',
+      'mobilenumber',
+      'mobile_number',
+      'mobile number',
+      'contact',
+      'whatsapp',
+      'whatsapp_number',
+    ].includes(h)
+  );
+
+  if (phoneIdx === -1) {
+    phoneIdx = headers.findIndex((h) => h.includes('phone') || h.includes('mobile'));
+  }
+
+  let nameIdx = headers.findIndex((h) =>
+    [
+      'name',
+      'fullname',
+      'full_name',
+      'full name',
+      'customer',
+      'customer_name',
+      'contact_name',
+      'first_name',
+      'firstname',
+    ].includes(h)
+  );
+
+  if (nameIdx === -1) {
+    nameIdx = headers.findIndex((h) => h.includes('name'));
+  }
+
+  if (phoneIdx === -1) return [];
+
+  const contacts: { phone: string; name?: string }[] = [];
+  const seenPhones = new Set<string>();
+
+  for (let i = 1; i < lines.length; i++) {
+    const row = parseCsvRow(lines[i]);
+    const rawPhone = row[phoneIdx];
+    if (!rawPhone) continue;
+
+    const cleaned = cleanPhoneNumber(rawPhone);
+    if (!cleaned || cleaned.replace(/\D/g, '').length < 7) continue;
+
+    if (seenPhones.has(cleaned)) continue;
+    seenPhones.add(cleaned);
+
+    const name = nameIdx >= 0 && row[nameIdx] ? row[nameIdx].trim() : undefined;
+    contacts.push({ phone: cleaned, name: name || undefined });
+  }
+
+  return contacts;
+}
 
 type AudienceType = 'all' | 'tags' | 'custom_field' | 'csv';
 type CustomFieldOperator = 'is' | 'is_not' | 'contains';
@@ -238,6 +358,84 @@ export function Step2SelectAudience({
     onUpdate({ ...audience, customField: { ...prev, ...patch } });
   }
 
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileProcess = useCallback(
+    (file: File) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        if (!text) {
+          toast.error('The selected file is empty.');
+          return;
+        }
+        const contacts = parseAudienceCsv(text);
+        if (contacts.length === 0) {
+          const lower = text.toLowerCase();
+          if (!lower.includes('phone') && !lower.includes('mobile')) {
+            toast.error("CSV must contain a 'phone' or 'mobile' header column.");
+          } else {
+            toast.error('No valid phone numbers found in CSV.');
+          }
+          return;
+        }
+
+        setUploadedFileName(file.name);
+        onUpdate({ ...audience, csvContacts: contacts });
+        toast.success(
+          `Loaded ${contacts.length} contact${contacts.length === 1 ? '' : 's'} from ${file.name}`
+        );
+      };
+      reader.onerror = () => {
+        toast.error('Failed to read the file.');
+      };
+      reader.readAsText(file);
+    },
+    [audience, onUpdate]
+  );
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileProcess(file);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
+        toast.error('Please upload a valid .csv file.');
+        return;
+      }
+      handleFileProcess(file);
+    }
+  };
+
+  const handleClearCsv = () => {
+    setUploadedFileName(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    onUpdate({ ...audience, csvContacts: undefined });
+  };
+
+  const handleDownloadSample = () => {
+    const csvContent =
+      'phone,name\n+919876543210,Rahul Sharma\n+919876543211,Priya Patel\n+919876543212,Amit Kumar\n';
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'sample_broadcast_audience.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const isValid =
     audience.type === 'all' ||
     (audience.type === 'tags' && audience.tagIds && audience.tagIds.length > 0) ||
@@ -311,9 +509,10 @@ export function Step2SelectAudience({
           {loadingTags ? (
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
           ) : tags.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {t('selectAudience.noTagsFound')}
-            </p>
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground mb-1">{t('selectAudience.noTagsFound')}</p>
+              <p>You haven't created any tags yet. You can create and assign tags in the <strong>Contacts</strong> tab, or use <strong>Upload CSV</strong> or <strong>All Contacts</strong> instead.</p>
+            </div>
           ) : (
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => {
@@ -347,9 +546,10 @@ export function Step2SelectAudience({
           {loadingFields ? (
             <Loader2 className="h-5 w-5 animate-spin text-primary" />
           ) : customFields.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {t('selectAudience.errorLoadFields')}
-            </p>
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground mb-1">No custom fields found</p>
+              <p>You haven't defined any custom fields yet. You can create custom fields in <strong>Contacts</strong>, or use <strong>Upload CSV</strong> or <strong>All Contacts</strong> instead.</p>
+            </div>
           ) : (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_140px_minmax(0,1fr)]">
               <select
@@ -391,41 +591,179 @@ export function Step2SelectAudience({
         </div>
       )}
 
-      {/* Exclude list — applies regardless of audience type */}
-      <div className="rounded-xl border border-border bg-card/50 p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <X className="h-4 w-4 text-red-400" />
-          <p className="text-sm font-medium text-foreground">
-            {t('selectAudience.excludeTags')}
-          </p>
-        </div>
-        {tags.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t('selectAudience.noTagsFound')}</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => {
-              const isExcluded = audience.excludeTagIds?.includes(tag.id);
-              return (
-                <button
-                  key={tag.id}
-                  onClick={() => toggleExcludeTag(tag.id)}
-                  className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-all ${
-                    isExcluded
-                      ? 'border-red-500/30 bg-red-500/10 text-red-300'
-                      : 'border-border bg-muted text-muted-foreground hover:border-border'
-                  }`}
-                >
-                  <span
-                    className="mr-1.5 h-2 w-2 rounded-full"
-                    style={{ backgroundColor: tag.color }}
-                  />
-                  {tag.name}
-                </button>
-              );
-            })}
+      {/* CSV Upload Section */}
+      {audience.type === 'csv' && (
+        <div className="space-y-4 rounded-xl border border-border bg-card/50 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-foreground">{t('selectAudience.uploadCsv')}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t('selectAudience.csvFormatDesc')}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadSample}
+              className="h-8 w-fit gap-1.5 border-border text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download Sample CSV
+            </Button>
           </div>
-        )}
-      </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+
+          {!audience.csvContacts || audience.csvContacts.length === 0 ? (
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-all ${
+                isDragging
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border/80 bg-muted/20 hover:border-primary/50 hover:bg-muted/40'
+              }`}
+            >
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <FileSpreadsheet className="h-6 w-6" />
+              </div>
+              <p className="mt-3 text-sm font-medium text-foreground">
+                Click to browse or drag and drop your CSV file here
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Supports column headers: <strong>phone</strong> or <strong>mobile</strong> (required), <strong>name</strong> (optional)
+              </p>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="mt-4 pointer-events-none"
+              >
+                <Upload className="mr-1.5 h-3.5 w-3.5" />
+                Select CSV File
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* File Info Bar */}
+              <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-emerald-200">
+                      {audience.csvContacts.length} valid contact{audience.csvContacts.length === 1 ? '' : 's'} loaded
+                    </p>
+                    {uploadedFileName && (
+                      <p className="text-xs text-emerald-300/80 font-mono">
+                        {uploadedFileName}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="h-8 border-border text-xs text-foreground"
+                  >
+                    Change File
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearCsv}
+                    className="h-8 px-2 text-destructive hover:bg-destructive/10"
+                    title="Remove CSV"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Preview Table */}
+              <div className="overflow-hidden rounded-lg border border-border">
+                <div className="bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground">
+                  Preview (First {Math.min(5, audience.csvContacts.length)} of {audience.csvContacts.length})
+                </div>
+                <div className="divide-y divide-border bg-card/30 text-xs">
+                  {audience.csvContacts.slice(0, 5).map((contact, idx) => (
+                    <div
+                      key={idx}
+                      className="grid grid-cols-2 px-3 py-2 text-muted-foreground sm:grid-cols-3"
+                    >
+                      <span className="font-mono text-foreground font-medium">
+                        {contact.phone}
+                      </span>
+                      <span>{contact.name || <span className="italic text-muted-foreground/60">No name</span>}</span>
+                      <span className="hidden sm:inline text-right text-emerald-400/90 font-medium">
+                        Ready to send
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {audience.csvContacts.length > 5 && (
+                  <div className="bg-muted/30 px-3 py-1.5 text-center text-xs text-muted-foreground">
+                    + {audience.csvContacts.length - 5} more contact{audience.csvContacts.length - 5 === 1 ? '' : 's'}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Exclude list — applies to database contacts */}
+      {audience.type !== 'csv' && (
+        <div className="rounded-xl border border-border bg-card/50 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <X className="h-4 w-4 text-red-400" />
+            <p className="text-sm font-medium text-foreground">
+              {t('selectAudience.excludeTags')}
+            </p>
+          </div>
+          {tags.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('selectAudience.noTagsFound')}</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {tags.map((tag) => {
+                const isExcluded = audience.excludeTagIds?.includes(tag.id);
+                return (
+                  <button
+                    key={tag.id}
+                    onClick={() => toggleExcludeTag(tag.id)}
+                    className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-all ${
+                      isExcluded
+                        ? 'border-red-500/30 bg-red-500/10 text-red-300'
+                        : 'border-border bg-muted text-muted-foreground hover:border-border'
+                    }`}
+                  >
+                    <span
+                      className="mr-1.5 h-2 w-2 rounded-full"
+                      style={{ backgroundColor: tag.color }}
+                    />
+                    {tag.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Audience Summary */}
       <div className="rounded-xl border border-border bg-card/50 p-4">
@@ -443,6 +781,10 @@ export function Step2SelectAudience({
             </span>
             <span className="text-xs text-muted-foreground">estimated recipients</span>
           </div>
+        ) : audience.type === 'csv' && (!audience.csvContacts || audience.csvContacts.length === 0) ? (
+          <p className="text-xs text-muted-foreground">
+            Upload a CSV file above to see estimated reach.
+          </p>
         ) : (
           <p className="text-xs text-muted-foreground">
             Select an audience type to see the estimate.
