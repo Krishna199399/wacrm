@@ -51,12 +51,12 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         <Header onOpenSidebar={() => setSidebarOpen(true)} />
         {/* Full-bleed edge-to-edge layout for inbox; padded for other pages */}
         <main
           className={cn(
-            "flex-1 overflow-y-auto",
+            "flex-1 overflow-y-auto min-w-0 w-full",
             isInbox ? "p-0 overflow-hidden" : "p-4 pb-20 sm:p-6 lg:pb-6"
           )}
         >

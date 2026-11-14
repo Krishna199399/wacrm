@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
 import { Search, ChevronDown, X } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
 import {
@@ -222,7 +223,7 @@ export function ConversationList({
     // w-full on mobile so the list occupies the whole viewport when it's
     // the single pane showing; fixed 320px on desktop where it shares the
     // row with the thread + contact sidebar.
-    <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
+    <div className="flex h-full w-full min-w-0 flex-col border-r border-border bg-card lg:w-80 overflow-hidden">
       {/* Search + Filter */}
       <div className="space-y-2 border-b border-border p-3">
         <div className="relative">
@@ -385,7 +386,7 @@ export function ConversationList({
           every conversation instead of shrinking to the remaining
           space — the list then overflows and gets clipped by the
           parent's overflow-hidden with no scrollbar (issue #229). */}
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 min-w-0 flex-1 w-full overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -395,7 +396,7 @@ export function ConversationList({
             <p className="text-sm text-muted-foreground">{t("noConversations")}</p>
           </div>
         ) : (
-          <div className="flex flex-col pb-28 lg:pb-6">
+          <div className="flex flex-col w-full min-w-0 pb-28 lg:pb-6 overflow-hidden">
             {filtered.map((conv) => (
               <ConversationItem
                 key={conv.id}
@@ -419,42 +420,6 @@ interface ConversationItemProps {
   t: ReturnType<typeof useTranslations>;
 }
 
-function formatWhatsAppTime(dateStr?: string | null): string {
-  if (!dateStr) return "";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return "";
-    const now = new Date();
-    // Same calendar day
-    if (
-      d.getDate() === now.getDate() &&
-      d.getMonth() === now.getMonth() &&
-      d.getFullYear() === now.getFullYear()
-    ) {
-      return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-    }
-    // Yesterday
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    if (
-      d.getDate() === yesterday.getDate() &&
-      d.getMonth() === yesterday.getMonth() &&
-      d.getFullYear() === yesterday.getFullYear()
-    ) {
-      return "Yesterday";
-    }
-    // Within last 6 days
-    const diffDays = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
-    if (diffDays >= 0 && diffDays < 6) {
-      return d.toLocaleDateString([], { weekday: 'short' });
-    }
-    // Older
-    return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: '2-digit' });
-  } catch {
-    return "";
-  }
-}
-
 function ConversationItem({
   conversation,
   isActive,
@@ -469,29 +434,34 @@ function ConversationItem({
     onSelect(conversation);
   }, [onSelect, conversation]);
 
-  const timeAgo = formatWhatsAppTime(conversation.last_message_at || conversation.updated_at);
+  const rawDate = conversation.last_message_at || conversation.updated_at;
+  let timeAgo = "";
+  if (rawDate) {
+    try {
+      timeAgo = formatDistanceToNow(new Date(rawDate), { addSuffix: false });
+    } catch {
+      timeAgo = "";
+    }
+  }
+
   const isUnread = (conversation.unread_count ?? 0) > 0;
 
   return (
     <button
+      type="button"
       onClick={handleClick}
       className={cn(
-        "group relative flex w-full items-center gap-3.5 px-3.5 py-2.5 text-left transition-colors hover:bg-muted/50 active:bg-muted/80 cursor-pointer",
-        isActive && "bg-muted/70"
+        "group relative flex w-full min-w-0 max-w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/50 active:bg-muted/80 cursor-pointer overflow-hidden",
+        isActive && "border-l-2 border-primary bg-muted/70"
       )}
     >
-      {/* Active Indicator bar */}
-      {isActive && (
-        <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-r" />
-      )}
-
       {/* Avatar */}
-      <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-muted font-bold text-foreground text-base shadow-2xs">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
         {contact?.avatar_url ? (
           <img
             src={contact.avatar_url}
             alt={displayName}
-            className="h-12 w-12 rounded-full object-cover"
+            className="h-10 w-10 rounded-full object-cover"
           />
         ) : (
           initials
@@ -499,41 +469,41 @@ function ConversationItem({
       </div>
 
       {/* Content */}
-      <div className="min-w-0 flex-1 border-b border-border/40 pb-2.5 pt-0.5">
-        <div className="flex items-baseline justify-between gap-2">
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <div className="flex items-center justify-between gap-2 min-w-0">
           <span className={cn(
-            "truncate text-[15px] font-semibold text-foreground",
+            "truncate text-sm font-medium text-foreground min-w-0 flex-1",
             isUnread && "font-bold text-foreground"
           )}>
             {displayName}
           </span>
           {timeAgo && (
             <span className={cn(
-              "shrink-0 text-[11px]",
-              isUnread ? "font-bold text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+              "shrink-0 text-[10px] whitespace-nowrap ml-2",
+              isUnread ? "font-bold text-primary" : "text-muted-foreground"
             )}>
               {timeAgo}
             </span>
           )}
         </div>
 
-        <div className="mt-1 flex items-center justify-between gap-2">
+        <div className="mt-0.5 flex items-center justify-between gap-2 min-w-0">
           <p className={cn(
-            "truncate text-xs leading-normal",
+            "truncate text-xs min-w-0 flex-1",
             isUnread ? "font-medium text-foreground" : "text-muted-foreground"
           )}>
             {conversation.last_message_text || t("noMessagesYet")}
           </p>
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5 ml-2">
             {isUnread && (
-              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-black text-white shadow-xs">
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground shadow-xs">
                 {conversation.unread_count > 99 ? "99+" : conversation.unread_count}
               </span>
             )}
             <span
               className={cn(
-                "h-2 w-2 rounded-full",
-                STATUS_COLORS[conversation.status] || "bg-emerald-500"
+                "h-2 w-2 rounded-full shrink-0",
+                STATUS_COLORS[conversation.status] || "bg-primary"
               )}
               title={conversation.status}
             />

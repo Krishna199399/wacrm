@@ -622,7 +622,7 @@ function InboxPageInner() {
   return (
     <div
       className={cn(
-        "flex h-full w-full flex-col overflow-hidden",
+        "flex h-full w-full min-w-0 flex-col overflow-hidden",
         hasActiveConv &&
           "fixed inset-0 z-50 h-full w-full bg-background lg:static lg:inset-auto lg:z-auto"
       )}
@@ -638,13 +638,13 @@ function InboxPageInner() {
         </div>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-w-0 w-full overflow-hidden">
         {/* Left panel: Conversation list.
             Hidden on mobile when a conversation is selected so the
             thread can occupy the full width. Always visible on lg+. */}
         <div
           className={cn(
-            "flex h-full flex-1 lg:flex-none",
+            "flex h-full w-full min-w-0 flex-1 overflow-hidden lg:flex-none lg:w-80",
             hasActiveConv ? "hidden lg:flex" : "flex",
           )}
         >
