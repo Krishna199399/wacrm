@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MessageSquare, Users, Radio, Zap, Settings } from "lucide-react";
+import { useTotalUnread } from "@/hooks/use-total-unread";
 import { cn } from "@/lib/utils";
 
 interface MobileNavProps {
@@ -11,6 +12,7 @@ interface MobileNavProps {
 
 export function MobileNav({ hidden }: MobileNavProps) {
   const pathname = usePathname();
+  const unreadCount = useTotalUnread();
 
   if (hidden) return null;
 
@@ -64,6 +66,11 @@ export function MobileNav({ hidden }: MobileNavProps) {
           >
             <div className="relative">
               <Icon className={cn("h-5 w-5", item.active && "stroke-[2.5]")} />
+              {item.href === "/inbox" && unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-xs">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </div>
             <span className="mt-1 leading-none">{item.label}</span>
           </Link>

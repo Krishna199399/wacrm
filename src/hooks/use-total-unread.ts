@@ -70,5 +70,25 @@ export function useTotalUnread(): number {
     };
   }, []);
 
+  // Synchronize Mobile Home Screen App Badge (iOS / Android) and Browser Tab
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // 1. Mobile Home Screen App Badge (iPhone PWA / Android)
+    if ("setAppBadge" in navigator) {
+      if (total > 0) {
+        (navigator as any).setAppBadge(total).catch(() => {});
+      } else {
+        (navigator as any).clearAppBadge().catch(() => {});
+      }
+    }
+
+    // 2. Browser Tab Title e.g. "(3) WhatsApp CRM"
+    if (typeof document !== "undefined") {
+      const cleanTitle = document.title.replace(/^\(\d+\)\s*/, "");
+      document.title = total > 0 ? `(${total}) ${cleanTitle}` : cleanTitle;
+    }
+  }, [total]);
+
   return total;
 }

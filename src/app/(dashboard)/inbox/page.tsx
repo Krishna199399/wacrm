@@ -14,8 +14,9 @@ import { ConversationList } from "@/components/inbox/conversation-list";
 import { MessageThread } from "@/components/inbox/message-thread";
 import { ContactSidebar } from "@/components/inbox/contact-sidebar";
 import { toast } from "sonner";
-import { WifiOff } from "lucide-react";
+import { WifiOff, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { playNotificationSound, showSystemNotification } from "@/lib/notifications/sound";
 
 // Remembers the agent's show/hide choice for the desktop contact panel
 // across reloads and sessions (device-scoped, like the theme prefs).
@@ -218,6 +219,16 @@ function InboxPageInner() {
       const newMsg = event.new;
 
       if (event.eventType === "INSERT") {
+        // Play notification sound and show system notification for inbound customer messages
+        if (newMsg.sender_type === "customer") {
+          playNotificationSound();
+          showSystemNotification(
+            "New WhatsApp Message",
+            newMsg.content_text || "Sent an attachment",
+            newMsg.conversation_id
+          );
+        }
+
         // Add to messages if it belongs to active conversation
         if (
           activeConversation &&

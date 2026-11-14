@@ -1,9 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
-import { LogOut, Menu, Settings as SettingsIcon, User } from "lucide-react";
+import { LogOut, Menu, Settings as SettingsIcon, User, Bell, BellRing } from "lucide-react";
+import { toast } from "sonner";
 import {
   Avatar,
   AvatarFallback,
@@ -56,6 +58,32 @@ export function Header({ onOpenSidebar }: HeaderProps) {
     profile?.email?.charAt(0)?.toUpperCase() ??
     "U";
 
+  const [notifState, setNotifState] = useState<string>("default");
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotifState(Notification.permission);
+    }
+  }, []);
+
+  const handleRequestNotifs = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      toast.info("Notifications not supported in this browser");
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      setNotifState(perm);
+      if (perm === "granted") {
+        toast.success("Notifications enabled! You will be alerted on new WhatsApp messages.");
+      } else {
+        toast.error("Notification permission denied");
+      }
+    } catch {
+      toast.error("Could not request notification permissions");
+    }
+  };
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 lg:px-6">
       <div className="flex min-w-0 items-center gap-2">
@@ -74,6 +102,16 @@ export function Header({ onOpenSidebar }: HeaderProps) {
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
+        {notifState !== "granted" && (
+          <button
+            type="button"
+            onClick={handleRequestNotifs}
+            title="Enable WhatsApp message notifications"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-amber-500 hover:bg-muted hover:text-amber-400 transition-colors"
+          >
+            <Bell className="h-4 w-4" />
+          </button>
+        )}
         <ModeToggle />
 
         <DropdownMenu>
