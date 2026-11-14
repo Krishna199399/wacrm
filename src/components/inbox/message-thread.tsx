@@ -901,8 +901,8 @@ export function MessageThread({
     // Issue #257.
     <div className={cn("flex min-w-0 flex-1 flex-col", DOODLE_BG_CLASSES)}>
       {/* Header — solid card surface sits on top of the doodle so the
-          name/avatar/dropdowns stay legible. */}
-      <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-3 sm:px-4">
+          name/avatar/dropdowns stay legible. Includes safe-area top padding for iPhone notch/Dynamic Island. */}
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] sm:px-4 sm:pt-3">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           {/* Back-to-list button — mobile only. Hidden on lg+ where the
               conversation list is always visible next to the thread. */}
