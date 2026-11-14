@@ -57,7 +57,9 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
         <main
           className={cn(
             "flex-1 overflow-y-auto min-w-0 w-full",
-            isInbox ? "p-0 overflow-hidden" : "p-4 pb-20 sm:p-6 lg:pb-6"
+            isInbox
+              ? "p-0 overflow-hidden"
+              : "p-4 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:p-6 lg:pb-6"
           )}
         >
           {/* Above every page: writes are being rejected and here's why.

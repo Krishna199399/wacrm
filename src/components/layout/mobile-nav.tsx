@@ -50,7 +50,7 @@ export function MobileNav({ hidden }: MobileNavProps) {
   ];
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 flex items-center justify-around border-t border-border bg-card/95 backdrop-blur-md pb-safe lg:hidden">
+    <nav className="fixed bottom-0 inset-x-0 z-40 flex items-center justify-around border-t border-border bg-card/95 backdrop-blur-md pt-1 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] lg:hidden">
       {navItems.map((item) => {
         const Icon = item.icon;
         return (
