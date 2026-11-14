@@ -901,7 +901,7 @@ export function MessageThread({
     // clipped and the hover toolbar overlaps the Tags panel. Letting the
     // root shrink lets the bubbles' break-words / max-w caps apply.
     // Issue #257.
-    <div className={cn("flex min-w-0 flex-1 flex-col", DOODLE_BG_CLASSES)}>
+    <div className={cn("flex h-full min-w-0 flex-1 flex-col overflow-hidden", DOODLE_BG_CLASSES)}>
       {/* Header — solid card surface sits on top of the doodle so the
           name/avatar/dropdowns stay legible. Includes safe-area top padding for iPhone notch/Dynamic Island. */}
       <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] sm:px-4 sm:pt-3">
