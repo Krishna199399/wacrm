@@ -118,6 +118,7 @@ interface MessageComposerProps {
   onOpenTemplates: () => void;
   replyTo?: ReplyDraft | null;
   onClearReply?: () => void;
+  initialText?: string;
 }
 
 function formatDuration(seconds: number): string {
@@ -140,10 +141,11 @@ export function MessageComposer({
   onOpenTemplates,
   replyTo,
   onClearReply,
+  initialText,
 }: MessageComposerProps) {
   const t = useTranslations("Inbox.composer");
 
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText || "");
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -219,6 +221,17 @@ export function MessageComposer({
     // Max 4 lines (~96px)
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   }, []);
+
+  // Update text and auto-expand if initialText changes (e.g. from deep link query)
+  useEffect(() => {
+    if (initialText) {
+      setText(initialText);
+      setTimeout(() => {
+        adjustHeight();
+        textareaRef.current?.focus();
+      }, 50);
+    }
+  }, [initialText, adjustHeight]);
 
   const handleSend = useCallback(async () => {
     const trimmed = text.trim();

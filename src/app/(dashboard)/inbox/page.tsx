@@ -41,8 +41,17 @@ function InboxPageInner() {
    * `?c=<id>` deep-link support. Used when landing here from the
    * dashboard's recent-conversations list so the right thread opens
    * automatically instead of showing the empty center panel.
+   *
+   * Also supports `?phone=<e164>`, `?name=<name>`, and `?text=<draft>`
+   * for 1-click customer chats from Belesu Admin (e.g. Abandoned Carts).
    */
   const deepLinkConvId = searchParams.get("c");
+  const deepLinkPhone = searchParams.get("phone");
+  const deepLinkText = searchParams.get("text");
+  const deepLinkName = searchParams.get("name");
+
+  const [prefilledComposerText, setPrefilledComposerText] = useState<string>("");
+  const autoResolvedPhoneRef = useRef<string | null>(null);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] =
@@ -168,6 +177,7 @@ function InboxPageInner() {
         }
         return [fetched, ...prev];
       });
+      return fetched;
     } finally {
       hydratingConvIdsRef.current.delete(convId);
     }
@@ -512,6 +522,43 @@ function InboxPageInner() {
     router.replace("/inbox", { scroll: false });
   }, [router]);
 
+  // Auto-resolve deep-linked phone number from external portals (e.g. Belesu Admin)
+  useEffect(() => {
+    if (!deepLinkPhone || autoResolvedPhoneRef.current === deepLinkPhone) return;
+    autoResolvedPhoneRef.current = deepLinkPhone;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/inbox/resolve-phone", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone: deepLinkPhone,
+            name: deepLinkName || undefined,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.conversationId) {
+          if (deepLinkText) {
+            setPrefilledComposerText(deepLinkText);
+          }
+          const fetched = await hydrateConversation(data.conversationId);
+          if (fetched) {
+            handleSelectConversation(fetched);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to auto-resolve phone deep link:", err);
+      }
+    })();
+  }, [
+    deepLinkPhone,
+    deepLinkName,
+    deepLinkText,
+    hydrateConversation,
+    handleSelectConversation,
+  ]);
+
 
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {
     setMessages(loaded);
@@ -640,6 +687,7 @@ function InboxPageInner() {
             onRefresh={handleManualRefresh}
             contactPanelOpen={contactPanelOpen}
             onToggleContactPanel={handleToggleContactPanel}
+            initialComposerText={prefilledComposerText}
           />
         </div>
 
