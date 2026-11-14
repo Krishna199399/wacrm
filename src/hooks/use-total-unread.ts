@@ -42,8 +42,13 @@ export function useTotalUnread(): number {
       setTotal(sum);
     })();
 
+    // Use a unique channel name per mount so React Strict Mode double-invoke
+    // and fast page navigation never try to add listeners to an already-
+    // subscribed channel (which Supabase rejects with "cannot add callbacks
+    // after subscribe").
+    const channelName = `total-unread-${Date.now()}-${Math.random()}`;
     const channel = supabase
-      .channel("total-unread-realtime")
+      .channel(channelName)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "conversations" },
