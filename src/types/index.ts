@@ -434,6 +434,11 @@ export interface Broadcast {
    * send. Added in migration 038.
    */
   delivery_locked_at?: string | null;
+  /**
+   * Media link for an image/video/document header, frozen at creation
+   * so resume/retry passes send the same media. Added in migration 041.
+   */
+  header_media_url?: string | null;
   created_at: string;
 }
 

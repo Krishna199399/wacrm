@@ -146,7 +146,7 @@ export async function planBroadcastResume(
 ): Promise<ResumePlan> {
   const { data: broadcast, error: bcError } = await db
     .from('broadcasts')
-    .select('id, template_name, template_language')
+    .select('id, template_name, template_language, header_media_url')
     .eq('id', broadcastId)
     .eq('account_id', accountId)
     .maybeSingle();
@@ -239,6 +239,10 @@ export async function planBroadcastResume(
     phoneNumberId: config.phone_number_id,
     accessToken: decrypt(config.access_token),
     templateRow: resolvedTemplate.row,
+    // The media link the original wizard pass sent (migration 041), so
+    // a resume of an image-header campaign doesn't depend on the
+    // template row having header_media_url (synced templates don't).
+    headerMediaUrl: broadcast.header_media_url ?? null,
     planned: slice.map((row) => ({
       recipientRowId: row.id,
       phone: sanitizePhoneForMeta(contactPhone(row) ?? ''),

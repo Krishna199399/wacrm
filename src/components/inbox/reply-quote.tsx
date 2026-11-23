@@ -32,7 +32,7 @@ export function ReplyQuote({ authorLabel, preview, onDismiss }: ReplyQuoteProps)
       )}
     >
       <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="truncate text-[12.5px] font-semibold text-wa-green">
+        <div className="truncate text-[13.5px] font-semibold text-wa-green">
           {authorLabel}
         </div>
         {/* Wrap the preview instead of truncating to a single line.
@@ -42,7 +42,7 @@ export function ReplyQuote({ authorLabel, preview, onDismiss }: ReplyQuoteProps)
          *  layout wider, shoving the contact sidebar off-screen.
          *  `break-words` also wraps long URLs that have no whitespace
          *  to break on. Issue #165. */}
-        <div className="line-clamp-3 whitespace-pre-wrap break-words text-[13px] text-wa-text-2">
+        <div className="line-clamp-3 whitespace-pre-wrap break-words text-[14.5px] text-wa-text-2 lg:text-[14px]">
           {preview}
         </div>
       </div>

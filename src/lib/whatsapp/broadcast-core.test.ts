@@ -1,9 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { MessageTemplate } from '@/types';
 import {
   createBroadcast,
+  deliverBroadcast,
   finalizeBroadcastStatus,
   BroadcastError,
+  type BroadcastPlan,
 } from './broadcast-core';
 
 // Contact resolution and token decryption are exercised elsewhere — stub
@@ -216,5 +219,99 @@ describe('finalizeBroadcastStatus', () => {
       'b-1',
     );
     expect(writes.update?.status).toBe('sent');
+  });
+});
+
+// ============================================================
+// deliverBroadcast — media headers on resume / retry
+//
+// A template imported via "Sync from Meta" has header_type 'image' but
+// no header_media_url. The wizard supplies the link per send; a
+// server-side resume must reuse the link frozen on the broadcast row
+// (migration 041) or every recipient fails with "image header requires
+// a media link or id at send time".
+// ============================================================
+
+function recipientDb(updates: Record<string, unknown>[]) {
+  return {
+    from(table: string) {
+      const b: Record<string, unknown> = {
+        select: () => b,
+        eq: () => b,
+        update: (row: Record<string, unknown>) => {
+          if (table === 'broadcast_recipients') updates.push(row);
+          return b;
+        },
+        then: (resolve: (r: { count: number; error: null }) => unknown) =>
+          resolve({ count: 0, error: null }),
+      };
+      return b;
+    },
+  } as unknown as SupabaseClient;
+}
+
+const syncedImageTemplate: MessageTemplate = {
+  id: 't-1',
+  user_id: 'u-1',
+  name: 'kannada_campaign',
+  category: 'Marketing',
+  language: 'en',
+  body_text: 'Hi {{1}}',
+  header_type: 'image',
+  created_at: '2026-01-01T00:00:00Z',
+};
+
+function imagePlan(headerMediaUrl: string | null): BroadcastPlan {
+  return {
+    broadcastId: 'b-1',
+    templateName: 'kannada_campaign',
+    templateLanguage: 'en',
+    phoneNumberId: 'pn-1',
+    accessToken: 'tok',
+    templateRow: syncedImageTemplate,
+    headerMediaUrl,
+    planned: [{ recipientRowId: 'r-1', phone: '+919000000001', params: ['Asha'] }],
+    rejected: 0,
+  };
+}
+
+describe('deliverBroadcast media header', () => {
+  it('sends the broadcast-level header media URL when the template row has none', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ messages: [{ id: 'wamid.1' }] }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const updates: Record<string, unknown>[] = [];
+      await deliverBroadcast(recipientDb(updates), imagePlan('https://cdn.example.com/book.jpg'));
+
+      expect(updates[0]).toMatchObject({ status: 'sent', whatsapp_message_id: 'wamid.1' });
+      const sent = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+      expect(sent.template.components).toContainEqual({
+        type: 'header',
+        parameters: [{ type: 'image', image: { link: 'https://cdn.example.com/book.jpg' } }],
+      });
+      expect(sent.template.components).toContainEqual({
+        type: 'body',
+        parameters: [{ type: 'text', text: 'Asha' }],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('still fails clearly when neither the broadcast nor the template has media', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const updates: Record<string, unknown>[] = [];
+      await deliverBroadcast(recipientDb(updates), imagePlan(null));
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(updates[0]?.status).toBe('failed');
+      expect(String(updates[0]?.error_message)).toMatch(/requires a media link or id/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

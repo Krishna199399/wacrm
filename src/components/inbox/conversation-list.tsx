@@ -273,7 +273,7 @@ export function ConversationList({
     <div className="flex h-full w-full min-w-0 flex-col overflow-hidden border-r border-wa-divider bg-wa-panel">
       {/* Title row — "Chats" + new chat + filter menu */}
       <div className="flex shrink-0 items-center justify-between gap-2 pb-2 pl-5 pr-3 pt-3 lg:pt-4">
-        <h2 className="text-[22px] font-bold tracking-tight text-wa-text">
+        <h2 className="text-[25px] font-bold lg:text-[23px] tracking-tight text-wa-text">
           {t("title")}
         </h2>
         <div className="flex items-center gap-0.5">
@@ -380,7 +380,7 @@ export function ConversationList({
             }}
             placeholder={t("searchPlaceholder")}
             aria-label={t("searchPlaceholder")}
-            className="h-10 w-full rounded-full bg-wa-surface pl-12 pr-10 text-[15px] text-wa-text outline-none ring-wa-green/60 transition-shadow placeholder:text-wa-text-2 focus:ring-2"
+            className="h-11 w-full rounded-full bg-wa-surface pl-12 pr-10 text-[16px] lg:h-10 lg:text-[15px] text-wa-text outline-none ring-wa-green/60 transition-shadow placeholder:text-wa-text-2 focus:ring-2"
           />
           {search && (
             <button
@@ -410,7 +410,7 @@ export function ConversationList({
               aria-pressed={active}
               onClick={() => setFilter(opt.value)}
               className={cn(
-                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium transition-colors",
+                "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-[15.5px] font-medium transition-colors lg:h-8 lg:px-3.5 lg:text-[14px]",
                 active
                   ? "bg-wa-green text-white"
                   : "border border-wa-divider bg-wa-panel text-wa-text-2 hover:bg-wa-hover",
@@ -420,7 +420,7 @@ export function ConversationList({
               {count > 0 && (
                 <span
                   className={cn(
-                    "flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold",
+                    "flex h-[22px] min-w-[22px] items-center justify-center rounded-full px-1 text-[12px] font-bold",
                     active ? "bg-white text-wa-green" : "bg-wa-green text-white",
                   )}
                 >
@@ -494,10 +494,10 @@ export function ConversationList({
               )}
             </span>
             <span className="min-w-0">
-              <span className="block text-[16px] font-medium text-wa-text">
+              <span className="block text-[17.5px] font-medium text-wa-text lg:text-[16.5px]">
                 {t("startChat")}
               </span>
-              <span className="block truncate text-[14px] text-wa-text-2">
+              <span className="block truncate text-[15.5px] text-wa-text-2 lg:text-[14.5px]">
                 {search.trim()}
               </span>
             </span>
@@ -510,7 +510,7 @@ export function ConversationList({
         ) : filtered.length === 0 ? (
           showStartChat ? null : (
             <div className="px-6 py-12 text-center">
-              <p className="text-sm text-wa-text-2">{t("noConversations")}</p>
+              <p className="text-[15px] text-wa-text-2">{t("noConversations")}</p>
             </div>
           )
         ) : (
@@ -578,13 +578,13 @@ function ConversationItem({
       {/* Divider is inset past the avatar, like WhatsApp. */}
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 border-b border-wa-divider py-3 pr-4 group-last:border-b-0">
         <div className="flex min-w-0 items-baseline justify-between gap-2">
-          <span className="min-w-0 flex-1 truncate text-[16px] font-medium text-wa-text">
+          <span className="min-w-0 flex-1 truncate text-[17.5px] font-medium text-wa-text lg:text-[16.5px]">
             {displayName}
           </span>
           {time && (
             <span
               className={cn(
-                "shrink-0 whitespace-nowrap text-xs",
+                "shrink-0 whitespace-nowrap text-[13.5px] lg:text-[12.5px]",
                 isUnread ? "font-medium text-wa-green" : "text-wa-text-2",
               )}
             >
@@ -596,7 +596,7 @@ function ConversationItem({
         <div className="flex min-w-0 items-center justify-between gap-2">
           <p
             className={cn(
-              "min-w-0 flex-1 truncate text-[14px] leading-5",
+              "min-w-0 flex-1 truncate text-[15.5px] leading-6 lg:text-[14.5px] lg:leading-5",
               isUnread ? "text-wa-text" : "text-wa-text-2",
             )}
           >
@@ -605,7 +605,7 @@ function ConversationItem({
           {statusKey && (
             <span
               className={cn(
-                "shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide",
+                "shrink-0 rounded-full px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide",
                 conversation.status === "pending"
                   ? "bg-amber-500/15 text-amber-700"
                   : "bg-wa-surface text-wa-text-2",
@@ -621,7 +621,7 @@ function ConversationItem({
             />
           )}
           {isUnread && (
-            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-wa-green px-1.5 text-[11px] font-bold text-white">
+            <span className="flex h-[22px] min-w-[22px] shrink-0 items-center justify-center rounded-full bg-wa-green px-1.5 text-[12px] font-bold text-white">
               {formatUnreadCount(unread)}
             </span>
           )}

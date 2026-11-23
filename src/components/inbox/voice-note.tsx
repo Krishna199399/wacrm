@@ -239,7 +239,7 @@ export function VoiceNote({
             );
           })}
         </div>
-        <div className="mt-0.5 flex items-center justify-between text-[11px] text-wa-meta">
+        <div className="mt-0.5 flex items-center justify-between text-[12px] text-wa-meta">
           <span>{formatTime(playing || current > 0 ? current : duration)}</span>
           {(playing || current > 0) && (
             <button

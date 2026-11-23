@@ -42,7 +42,7 @@ export function MobileNav({ hidden }: MobileNavProps) {
             href={item.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "flex flex-1 flex-col items-center justify-center gap-1 text-[11px] transition-colors active:scale-95",
+              "flex flex-1 flex-col items-center justify-center gap-1 text-[12.5px] transition-colors active:scale-95",
               active ? "font-semibold text-wa-text" : "font-medium text-wa-text-2",
             )}
           >

@@ -683,7 +683,7 @@ export function MessageComposer({
                 type="button"
                 onClick={() => handlePickQuickReply(qr)}
                 title={qr.content_text ?? qr.title}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-wa-divider bg-wa-panel px-3.5 text-[13px] font-medium text-wa-text shadow-[0_1px_0.5px_rgba(11,20,26,0.08)] transition-colors hover:bg-wa-hover"
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-wa-divider bg-wa-panel px-3.5 text-[14.5px] font-medium text-wa-text shadow-[0_1px_0.5px_rgba(11,20,26,0.08)] lg:text-[13.5px] transition-colors hover:bg-wa-hover"
               >
                 <Zap className="h-3.5 w-3.5 text-wa-green" />
                 <span className="max-w-48 truncate">{qr.title}</span>
@@ -866,7 +866,7 @@ export function MessageComposer({
               // Textarea keeps its own inline title — the GatedButton
               // wrapping pattern doesn't apply to non-button inputs.
               title={readOnly ? t("readOnlyTitle") : undefined}
-              className="wa-scroll max-h-36 min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-[11px] text-[15px] leading-[22px] text-wa-text outline-none placeholder:text-wa-text-2 disabled:cursor-not-allowed"
+              className="wa-scroll max-h-36 min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-[11px] text-[16px] leading-[22px] text-wa-text outline-none placeholder:text-wa-text-2 disabled:cursor-not-allowed"
             />
 
             <div className="flex shrink-0 items-center pb-1">

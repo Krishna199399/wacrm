@@ -1068,18 +1068,18 @@ export function MessageThread({
           >
             <ContactAvatar name={displayName} src={contact.avatar_url} size={42} />
             <span className="min-w-0">
-              <span className="block truncate text-[16px] font-medium leading-tight text-wa-text">
+              <span className="block truncate text-[17.5px] font-medium leading-tight text-wa-text lg:text-[16.5px]">
                 {displayName}
               </span>
               {typers.length > 0 ? (
-                <span className="flex items-center gap-1 truncate text-[13px] leading-tight text-wa-green">
+                <span className="flex items-center gap-1 truncate text-[14px] leading-tight text-wa-green lg:text-[13.5px]">
                   <TypingDots />
                   {typers.length === 1
                     ? t("teammateTyping", { name: typers[0].name })
                     : t("teammatesTyping", { count: typers.length })}
                 </span>
               ) : (
-                <span className="block truncate text-[13px] leading-tight text-wa-text-2">
+                <span className="block truncate text-[14px] leading-tight text-wa-text-2 lg:text-[13.5px]">
                   {contact.name && contact.name !== contact.phone
                     ? contact.phone
                     : sessionInfo.remaining}
@@ -1389,7 +1389,7 @@ export function MessageThread({
               {/* Date chip — sticky, like WhatsApp, so the day stays
                   visible while scrolling through it. */}
               <div className="sticky top-0 z-10 flex justify-center pb-2 pt-3">
-                <span className="rounded-lg bg-wa-chip px-3 py-1.5 text-[12.5px] font-medium text-wa-chip-fg shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]">
+                <span className="rounded-lg bg-wa-chip px-3 py-1.5 text-[13.5px] font-medium text-wa-chip-fg shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]">
                   {formatDateSeparator(group.date, t)}
                 </span>
               </div>

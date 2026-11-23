@@ -84,7 +84,7 @@ function MetaSpacer({
   /** Number of small star / pin icons before the time. */
   icons: number;
 }) {
-  const width = 60 + (withTicks ? 20 : 0) + (withAi ? 46 : 0) + icons * 16;
+  const width = 66 + (withTicks ? 20 : 0) + (withAi ? 46 : 0) + icons * 16;
   return (
     <span
       aria-hidden="true"
@@ -96,7 +96,7 @@ function MetaSpacer({
 
 function BodyText({ text, spacer }: { text: string; spacer?: React.ReactNode }) {
   return (
-    <p className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px]">
+    <p className="whitespace-pre-wrap break-words text-[16px] leading-[22px] lg:text-[15px] lg:leading-[21px]">
       <WaText text={text} />
       {spacer}
     </p>
@@ -181,7 +181,7 @@ function MessageContent({
             <BodyText text={message.content_text} spacer={spacer} />
           ) : (
             message.template_name && (
-              <p className="break-words text-[14.2px] italic opacity-80">
+              <p className="break-words text-[16px] lg:text-[15px] italic opacity-80">
                 {message.template_name}
                 {spacer}
               </p>
@@ -192,7 +192,7 @@ function MessageContent({
 
     case "location":
       return (
-        <div className="flex items-center gap-2 text-[14.2px]">
+        <div className="flex items-center gap-2 text-[16px] lg:text-[15px]">
           <MapPin className="h-4 w-4 shrink-0 text-wa-text-2" />
           <span>
             {message.content_text || t("locationShared")}
@@ -215,7 +215,7 @@ function MessageContent({
         return (
           <InteractivePreview
             payload={message.interactive_payload}
-            className="-mx-1 max-w-[340px] rounded-none bg-transparent text-wa-text shadow-none ring-0"
+            className="-mx-1 max-w-[340px] rounded-none bg-transparent text-[16px] text-wa-text shadow-none ring-0 lg:text-[15px]"
           />
         );
       }
@@ -280,7 +280,7 @@ export function MessageBubble({
   const meta = (
     <span
       className={cn(
-        "flex items-center gap-1 whitespace-nowrap text-[11px] leading-none text-wa-meta",
+        "flex items-center gap-1 whitespace-nowrap text-[12px] leading-none text-wa-meta",
         inlineMeta ? "absolute bottom-[7px] right-2" : "mt-1 justify-end",
       )}
     >
@@ -322,14 +322,14 @@ export function MessageBubble({
         )}
       >
         {message.is_forwarded && (
-          <div className="mb-0.5 flex items-center gap-1 px-0.5 text-[12.5px] italic text-wa-text-2">
+          <div className="mb-0.5 flex items-center gap-1 px-0.5 text-[13.5px] italic text-wa-text-2">
             <Forward className="h-3.5 w-3.5" />
             {message.is_frequently_forwarded && <Forward className="-ml-2 h-3.5 w-3.5" />}
             {message.is_frequently_forwarded ? t("forwardedMany") : t("forwarded")}
           </div>
         )}
         {message.correction_of_message_id && (
-          <div className="mb-0.5 flex items-center gap-1 px-0.5 text-[12px] font-medium text-wa-text-2">
+          <div className="mb-0.5 flex items-center gap-1 px-0.5 text-[13px] font-medium text-wa-text-2">
             <PencilLine className="h-3.5 w-3.5" />
             {t("correction")}
           </div>

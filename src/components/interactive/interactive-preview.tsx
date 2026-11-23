@@ -25,17 +25,17 @@ export function InteractivePreview({
   return (
     <div
       className={cn(
-        "w-full max-w-[260px] overflow-hidden rounded-lg bg-card text-foreground shadow-sm ring-1 ring-border",
+        "w-full max-w-[260px] overflow-hidden rounded-lg bg-card text-sm text-foreground shadow-sm ring-1 ring-border",
         className,
       )}
     >
       <div className="px-3 py-2">
         {payload.header ? (
-          <p className="mb-1 break-words text-sm font-semibold">
+          <p className="mb-1 break-words font-semibold">
             {payload.header}
           </p>
         ) : null}
-        <p className="whitespace-pre-wrap break-words text-sm">
+        <p className="whitespace-pre-wrap break-words">
           {payload.body ? (
             // Same formatting + clickable links as plain text bubbles.
             <WaText text={payload.body} />

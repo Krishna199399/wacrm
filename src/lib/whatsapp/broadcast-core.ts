@@ -69,6 +69,12 @@ export interface BroadcastPlan {
   phoneNumberId: string;
   accessToken: string;
   templateRow: MessageTemplate | null;
+  /**
+   * Media link for an image/video/document header, applied to every
+   * recipient. Overrides the template row's header_media_url; when
+   * unset the builder falls back to that.
+   */
+  headerMediaUrl?: string | null;
   planned: PlannedRecipient[];
   /** Phones rejected up front (invalid E.164) — counted as failed. */
   rejected: number;
@@ -259,6 +265,8 @@ export async function deliverBroadcast(
   db: SupabaseClient,
   plan: BroadcastPlan
 ): Promise<void> {
+  const headerMediaUrl = plan.headerMediaUrl?.trim() || undefined;
+
   for (const recipient of plan.planned) {
     const variants = phoneVariants(recipient.phone);
     let sentMessageId: string | null = null;
@@ -274,6 +282,9 @@ export async function deliverBroadcast(
           language: plan.templateLanguage,
           template: plan.templateRow ?? undefined,
           params: recipient.params,
+          ...(headerMediaUrl
+            ? { messageParams: { body: recipient.params, headerMediaUrl } }
+            : {}),
         });
         sentMessageId = result.messageId;
         lastError = null;
