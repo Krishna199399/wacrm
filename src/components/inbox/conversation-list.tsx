@@ -9,18 +9,31 @@ import {
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
-import { Search, ChevronDown, X } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import {
+  Search,
+  X,
+  Check,
+  Loader2,
+  MessageCirclePlus,
+  MoreVertical,
+  Pin,
+  SquarePen,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useCan } from "@/hooks/use-can";
+import { formatWhatsAppTime, formatUnreadCount } from "@/lib/inbox/whatsapp-helpers";
+import { ContactAvatar } from "./contact-avatar";
 
 interface ConversationListProps {
   activeConversationId: string | null;
@@ -34,15 +47,13 @@ interface ConversationListProps {
    * or the tab was throttled. Optional so existing callers keep working.
    */
   resyncToken?: number;
+  /**
+   * Find-or-create a conversation for a typed phone number. Resolves
+   * true once the new thread is selected. Optional: without it the
+   * "start new chat" row never shows.
+   */
+  onStartChat?: (phone: string) => Promise<boolean>;
 }
-
-const STATUS_COLORS: Record<ConversationStatus, string> = {
-  open: "bg-primary",
-  pending: "bg-amber-500",
-  closed: "bg-muted-foreground",
-};
-
-
 
 type InboxFilter = ConversationStatus | "all" | "unread";
 
@@ -52,8 +63,12 @@ export function ConversationList({
   conversations,
   onConversationsLoaded,
   resyncToken = 0,
+  onStartChat,
 }: ConversationListProps) {
   const t = useTranslations("Inbox.conversationList");
+  const canStartChat = useCan("send-messages");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [startingChat, setStartingChat] = useState(false);
   
   const FILTER_OPTIONS: { label: string; value: InboxFilter }[] = useMemo(() => [
     { label: t("filterAll"), value: "all" },
@@ -187,6 +202,16 @@ export function ConversationList({
       });
     }
 
+    // Pinned chats first (most recently pinned on top), like WhatsApp.
+    // Stable sort keeps the recency order within each group.
+    if (result.some((c) => c.pinned_at)) {
+      result = [...result].sort((a, b) => {
+        if (!!a.pinned_at !== !!b.pinned_at) return a.pinned_at ? -1 : 1;
+        if (a.pinned_at && b.pinned_at) return b.pinned_at.localeCompare(a.pinned_at);
+        return 0;
+      });
+    }
+
     return result;
   }, [conversations, filter, search, selectedTagIds, selectedCompany]);
 
@@ -217,186 +242,279 @@ export function ConversationList({
     [onSelect]
   );
 
-  const activeFilter = FILTER_OPTIONS.find((o) => o.value === filter);
+  const unreadChats = useMemo(
+    () => conversations.filter((c) => (c.unread_count ?? 0) > 0).length,
+    [conversations],
+  );
+
+  // "Start a new chat" — offered when the search looks like a phone
+  // number that no loaded conversation already has.
+  const searchDigits = search.replace(/\D/g, "");
+  const looksLikePhone =
+    /^\+?[\d\s()-]+$/.test(search.trim()) && searchDigits.length >= 8;
+  const hasPhoneMatch =
+    looksLikePhone &&
+    conversations.some((c) => {
+      const d = c.contact?.phone?.replace(/\D/g, "") ?? "";
+      return d.length > 0 && (d === searchDigits || d.endsWith(searchDigits));
+    });
+  const showStartChat =
+    !!onStartChat && canStartChat && looksLikePhone && !hasPhoneMatch;
+
+  const handleStartChat = useCallback(async () => {
+    if (!onStartChat || startingChat) return;
+    setStartingChat(true);
+    const ok = await onStartChat(search.trim());
+    setStartingChat(false);
+    if (ok) setSearch("");
+  }, [onStartChat, search, startingChat]);
 
   return (
-    // w-full on mobile so the list occupies the whole viewport when it's
-    // the single pane showing; fixed 320px on desktop where it shares the
-    // row with the thread + contact sidebar.
-    <div className="flex h-full w-full min-w-0 flex-col border-r border-border bg-card lg:w-80 overflow-hidden">
-      {/* Search + Filter */}
-      <div className="space-y-2 border-b border-border p-3">
+    <div className="flex h-full w-full min-w-0 flex-col overflow-hidden border-r border-wa-divider bg-wa-panel">
+      {/* Title row — "Chats" + new chat + filter menu */}
+      <div className="flex shrink-0 items-center justify-between gap-2 pb-2 pl-5 pr-3 pt-3 lg:pt-4">
+        <h2 className="text-[22px] font-bold tracking-tight text-wa-text">
+          {t("title")}
+        </h2>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => searchRef.current?.focus()}
+            title={t("newChat")}
+            aria-label={t("newChat")}
+            className="flex h-10 w-10 items-center justify-center rounded-full text-wa-icon transition-colors hover:bg-wa-surface"
+          >
+            <SquarePen className="h-[22px] w-[22px]" />
+          </button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              title={t("filterMenu")}
+              aria-label={t("filterMenu")}
+              className="relative flex h-10 w-10 items-center justify-center rounded-full text-wa-icon transition-colors hover:bg-wa-surface data-popup-open:bg-wa-surface"
+            >
+              <MoreVertical className="h-[22px] w-[22px]" />
+              {hasContactFilters && (
+                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-wa-green" />
+              )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-h-80 w-60">
+              {tags.length === 0 && companies.length === 0 ? (
+                <DropdownMenuItem disabled className="text-sm">
+                  {t("noFilters")}
+                </DropdownMenuItem>
+              ) : null}
+              {tags.length > 0 && (
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>{t("tags")}</DropdownMenuLabel>
+                  {tags.map((tag) => (
+                    <DropdownMenuCheckboxItem
+                      key={tag.id}
+                      checked={selectedTagIds.includes(tag.id)}
+                      onCheckedChange={() => toggleTag(tag.id)}
+                      className="text-sm"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: tag.color }}
+                        />
+                        <span className="truncate">{tag.name}</span>
+                      </span>
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuGroup>
+              )}
+              {tags.length > 0 && companies.length > 0 && <DropdownMenuSeparator />}
+              {companies.length > 0 && (
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>{t("company")}</DropdownMenuLabel>
+                  <DropdownMenuItem
+                    onClick={() => setSelectedCompany(null)}
+                    className="text-sm"
+                  >
+                    <span className="flex-1">{t("allCompanies")}</span>
+                    {selectedCompany === null && <Check className="h-3.5 w-3.5" />}
+                  </DropdownMenuItem>
+                  {companies.map((co) => (
+                    <DropdownMenuItem
+                      key={co}
+                      onClick={() => setSelectedCompany(co)}
+                      className="text-sm"
+                    >
+                      <span className="flex-1 truncate">{co}</span>
+                      {selectedCompany === co && <Check className="h-3.5 w-3.5" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              )}
+              {hasContactFilters && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={clearContactFilters} className="text-sm">
+                    <X className="h-3.5 w-3.5" />
+                    {t("clearAll")}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* Search pill */}
+      <div className="shrink-0 px-3 pb-2.5">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-wa-text-2" />
+          <input
+            ref={searchRef}
             value={search}
             onChange={handleSearchChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && showStartChat) {
+                e.preventDefault();
+                void handleStartChat();
+              } else if (e.key === "Escape") {
+                setSearch("");
+              }
+            }}
             placeholder={t("searchPlaceholder")}
-            className="border-border bg-muted pl-9 text-sm text-foreground placeholder-muted-foreground focus:border-primary/50"
+            aria-label={t("searchPlaceholder")}
+            className="h-10 w-full rounded-full bg-wa-surface pl-12 pr-10 text-[15px] text-wa-text outline-none ring-wa-green/60 transition-shadow placeholder:text-wa-text-2 focus:ring-2"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                searchRef.current?.focus();
+              }}
+              aria-label={t("clearSearch")}
+              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-wa-text-2 hover:bg-wa-hover"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
+      </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          {FILTER_OPTIONS.map((opt) => (
+      {/* Filter pills */}
+      <div className="scrollbar-none flex shrink-0 items-center gap-2 overflow-x-auto px-3 pb-3">
+        {FILTER_OPTIONS.map((opt) => {
+          const active = filter === opt.value;
+          const count = opt.value === "unread" ? unreadChats : 0;
+          return (
             <button
               key={opt.value}
               type="button"
+              aria-pressed={active}
               onClick={() => setFilter(opt.value)}
               className={cn(
-                "inline-flex shrink-0 items-center justify-center h-7 px-3 text-xs rounded-full font-medium transition-colors cursor-pointer",
-                filter === opt.value
-                  ? "bg-primary text-primary-foreground font-semibold shadow-2xs"
-                  : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium transition-colors",
+                active
+                  ? "bg-wa-green text-white"
+                  : "border border-wa-divider bg-wa-panel text-wa-text-2 hover:bg-wa-hover",
               )}
             >
               {opt.label}
-            </button>
-          ))}
-
-          {tags.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className={cn(
-                  "inline-flex shrink-0 items-center justify-center h-7 gap-1 px-2.5 text-xs rounded-full font-medium transition-colors cursor-pointer",
-                  selectedTagIds.length > 0
-                    ? "bg-primary text-primary-foreground font-semibold"
-                    : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {t("tags")}
-                {selectedTagIds.length > 0 && (
-                  <span className="flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-background px-1 text-[9px] font-bold text-foreground">
-                    {selectedTagIds.length}
-                  </span>
-                )}
-                <ChevronDown className="h-3 w-3" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="max-h-64 w-56 border-border bg-popover"
-              >
-                {tags.map((t) => (
-                  <DropdownMenuCheckboxItem
-                    key={t.id}
-                    checked={selectedTagIds.includes(t.id)}
-                    onCheckedChange={() => toggleTag(t.id)}
-                    className="text-sm text-popover-foreground"
-                  >
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: t.color }}
-                      />
-                      <span className="truncate">{t.name}</span>
-                    </span>
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {companies.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                className={cn(
-                  "inline-flex shrink-0 max-w-40 items-center justify-center h-7 gap-1 px-2.5 text-xs rounded-full font-medium transition-colors cursor-pointer",
-                  selectedCompany
-                    ? "bg-primary text-primary-foreground font-semibold"
-                    : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <span className="truncate">{selectedCompany ?? t("company")}</span>
-                <ChevronDown className="h-3 w-3 shrink-0" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="max-h-64 w-56 border-border bg-popover"
-              >
-                <DropdownMenuItem
-                  onClick={() => setSelectedCompany(null)}
+              {count > 0 && (
+                <span
                   className={cn(
-                    "text-sm",
-                    selectedCompany === null
-                      ? "text-primary"
-                      : "text-popover-foreground"
+                    "flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[11px] font-bold",
+                    active ? "bg-white text-wa-green" : "bg-wa-green text-white",
                   )}
                 >
-                  {t("allCompanies")}
-                </DropdownMenuItem>
-                {companies.map((co) => (
-                  <DropdownMenuItem
-                    key={co}
-                    onClick={() => setSelectedCompany(co)}
-                    className={cn(
-                      "text-sm",
-                      selectedCompany === co
-                        ? "text-primary"
-                        : "text-popover-foreground"
-                    )}
-                  >
-                    <span className="truncate">{co}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-
-        {hasContactFilters && (
-          <div className="flex flex-wrap items-center gap-1">
-            {selectedTagIds.map((id) => {
-              const tag = tagsById.get(id);
-              return (
-                <button
-                  key={id}
-                  onClick={() => toggleTag(id)}
-                  className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
-                >
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: tag?.color ?? "var(--muted-foreground)" }}
-                  />
-                  <span className="max-w-24 truncate">{tag?.name ?? t("tags")}</span>
-                  <X className="h-3 w-3" />
-                </button>
-              );
-            })}
-            {selectedCompany && (
-              <button
-                onClick={() => setSelectedCompany(null)}
-                className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
-              >
-                <span className="max-w-24 truncate">{selectedCompany}</span>
-                <X className="h-3 w-3" />
-              </button>
-            )}
-            <button
-              onClick={clearContactFilters}
-              className="px-1 text-[11px] text-muted-foreground hover:text-foreground"
-            >
-              {t("clearAll")}
+                  {count > 99 ? "99+" : count}
+                </span>
+              )}
             </button>
-          </div>
-        )}
+          );
+        })}
       </div>
 
-      {/* Conversation Items.
+      {hasContactFilters && (
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-3 pb-2.5">
+          {selectedTagIds.map((id) => {
+            const tag = tagsById.get(id);
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => toggleTag(id)}
+                className="inline-flex items-center gap-1 rounded-full bg-wa-surface px-2.5 py-1 text-xs text-wa-text hover:bg-wa-selected"
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: tag?.color }}
+                />
+                <span className="max-w-24 truncate">{tag?.name ?? t("tags")}</span>
+                <X className="h-3 w-3" />
+              </button>
+            );
+          })}
+          {selectedCompany && (
+            <button
+              type="button"
+              onClick={() => setSelectedCompany(null)}
+              className="inline-flex items-center gap-1 rounded-full bg-wa-surface px-2.5 py-1 text-xs text-wa-text hover:bg-wa-selected"
+            >
+              <span className="max-w-24 truncate">{selectedCompany}</span>
+              <X className="h-3 w-3" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={clearContactFilters}
+            className="px-1 text-xs font-medium text-wa-green hover:underline"
+          >
+            {t("clearAll")}
+          </button>
+        </div>
+      )}
+
+      {/* Conversation rows.
           `min-h-0` is load-bearing: a flex child defaults to
           min-height:auto, so without it this ScrollArea grows to fit
           every conversation instead of shrinking to the remaining
           space — the list then overflows and gets clipped by the
           parent's overflow-hidden with no scrollbar (issue #229). */}
-      <ScrollArea className="min-h-0 min-w-0 flex-1 w-full overflow-hidden">
+      <ScrollArea className="min-h-0 w-full min-w-0 flex-1 overflow-hidden border-t border-wa-divider">
+        {showStartChat && (
+          <button
+            type="button"
+            onClick={() => void handleStartChat()}
+            disabled={startingChat}
+            className="flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-wa-hover disabled:opacity-60"
+          >
+            <span className="flex h-[49px] w-[49px] shrink-0 items-center justify-center rounded-full bg-wa-green text-white">
+              {startingChat ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <MessageCirclePlus className="h-6 w-6" />
+              )}
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[16px] font-medium text-wa-text">
+                {t("startChat")}
+              </span>
+              <span className="block truncate text-[14px] text-wa-text-2">
+                {search.trim()}
+              </span>
+            </span>
+          </button>
+        )}
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-wa-green border-t-transparent" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="px-4 py-12 text-center">
-            <p className="text-sm text-muted-foreground">{t("noConversations")}</p>
-          </div>
+          showStartChat ? null : (
+            <div className="px-6 py-12 text-center">
+              <p className="text-sm text-wa-text-2">{t("noConversations")}</p>
+            </div>
+          )
         ) : (
-          <div className="flex flex-col w-full min-w-0 pb-28 lg:pb-6 overflow-hidden">
+          <div className="flex w-full min-w-0 flex-col overflow-hidden pb-28 lg:pb-4">
             {filtered.map((conv) => (
               <ConversationItem
                 key={conv.id}
@@ -420,6 +538,11 @@ interface ConversationItemProps {
   t: ReturnType<typeof useTranslations>;
 }
 
+const STATUS_LABEL_KEY: Partial<Record<ConversationStatus, string>> = {
+  pending: "filterPending",
+  closed: "filterClosed",
+};
+
 function ConversationItem({
   conversation,
   isActive,
@@ -428,86 +551,80 @@ function ConversationItem({
 }: ConversationItemProps) {
   const contact = conversation.contact;
   const displayName = contact?.name || contact?.phone || t("unknown");
-  const initials = displayName.charAt(0).toUpperCase();
 
   const handleClick = useCallback(() => {
     onSelect(conversation);
   }, [onSelect, conversation]);
 
   const rawDate = conversation.last_message_at || conversation.updated_at;
-  let timeAgo = "";
-  if (rawDate) {
-    try {
-      timeAgo = formatDistanceToNow(new Date(rawDate), { addSuffix: false });
-    } catch {
-      timeAgo = "";
-    }
-  }
+  const time = rawDate ? formatWhatsAppTime(rawDate, t("yesterday")) : "";
 
-  const isUnread = (conversation.unread_count ?? 0) > 0;
+  const unread = conversation.unread_count ?? 0;
+  const isUnread = unread > 0;
+  const statusKey = STATUS_LABEL_KEY[conversation.status];
 
   return (
     <button
       type="button"
       onClick={handleClick}
+      aria-current={isActive ? "true" : undefined}
       className={cn(
-        "group relative flex w-full min-w-0 max-w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-muted/50 active:bg-muted/80 cursor-pointer overflow-hidden",
-        isActive && "border-l-2 border-primary bg-muted/70"
+        "group flex w-full min-w-0 max-w-full items-center gap-3 pl-3 text-left transition-colors",
+        isActive ? "bg-wa-selected" : "hover:bg-wa-hover",
       )}
     >
-      {/* Avatar */}
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
-        {contact?.avatar_url ? (
-          <img
-            src={contact.avatar_url}
-            alt={displayName}
-            className="h-10 w-10 rounded-full object-cover"
-          />
-        ) : (
-          initials
-        )}
-      </div>
+      <ContactAvatar name={displayName} src={contact?.avatar_url} size={49} />
 
-      {/* Content */}
-      <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="flex items-center justify-between gap-2 min-w-0">
-          <span className={cn(
-            "truncate text-sm font-medium text-foreground min-w-0 flex-1",
-            isUnread && "font-bold text-foreground"
-          )}>
+      {/* Divider is inset past the avatar, like WhatsApp. */}
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 border-b border-wa-divider py-3 pr-4 group-last:border-b-0">
+        <div className="flex min-w-0 items-baseline justify-between gap-2">
+          <span className="min-w-0 flex-1 truncate text-[16px] font-medium text-wa-text">
             {displayName}
           </span>
-          {timeAgo && (
-            <span className={cn(
-              "shrink-0 text-[10px] whitespace-nowrap ml-2",
-              isUnread ? "font-bold text-primary" : "text-muted-foreground"
-            )}>
-              {timeAgo}
+          {time && (
+            <span
+              className={cn(
+                "shrink-0 whitespace-nowrap text-xs",
+                isUnread ? "font-medium text-wa-green" : "text-wa-text-2",
+              )}
+            >
+              {time}
             </span>
           )}
         </div>
 
-        <div className="mt-0.5 flex items-center justify-between gap-2 min-w-0">
-          <p className={cn(
-            "truncate text-xs min-w-0 flex-1",
-            isUnread ? "font-medium text-foreground" : "text-muted-foreground"
-          )}>
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <p
+            className={cn(
+              "min-w-0 flex-1 truncate text-[14px] leading-5",
+              isUnread ? "text-wa-text" : "text-wa-text-2",
+            )}
+          >
             {conversation.last_message_text || t("noMessagesYet")}
           </p>
-          <div className="flex shrink-0 items-center gap-1.5 ml-2">
-            {isUnread && (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground shadow-xs">
-                {conversation.unread_count > 99 ? "99+" : conversation.unread_count}
-              </span>
-            )}
+          {statusKey && (
             <span
               className={cn(
-                "h-2 w-2 rounded-full shrink-0",
-                STATUS_COLORS[conversation.status] || "bg-primary"
+                "shrink-0 rounded-full px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide",
+                conversation.status === "pending"
+                  ? "bg-amber-500/15 text-amber-700"
+                  : "bg-wa-surface text-wa-text-2",
               )}
-              title={conversation.status}
+            >
+              {t(statusKey)}
+            </span>
+          )}
+          {conversation.pinned_at && (
+            <Pin
+              className="h-4 w-4 shrink-0 rotate-45 text-wa-text-2"
+              aria-label={t("pinned")}
             />
-          </div>
+          )}
+          {isUnread && (
+            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-wa-green px-1.5 text-[11px] font-bold text-white">
+              {formatUnreadCount(unread)}
+            </span>
+          )}
         </div>
       </div>
     </button>

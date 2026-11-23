@@ -81,7 +81,11 @@ export function usePresence(enabled = true): UsePresenceResult {
     // rather than replacing the map — so an event that lands while the
     // fetch is in flight isn't clobbered by a staler snapshot row.
     const channel: RealtimeChannel = supabase
-      .channel(`presence:${accountId}`)
+      // Unique per mount: postgres_changes doesn't need a shared topic,
+      // and the header + thread both subscribe at once. Reusing a topic
+      // makes supabase-js hand back the already-subscribed channel and
+      // throw when callbacks are added (same fix as use-total-unread).
+      .channel(`presence:${accountId}:${Math.random().toString(36).slice(2)}`)
       .on(
         "postgres_changes",
         {

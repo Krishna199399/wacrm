@@ -68,8 +68,12 @@ interface WhatsAppMessage {
    * payload and mirrors the label into it).
    */
   button?: { text?: string; payload?: string }
-  /** Present when the customer swipe-replies to one of our messages. */
-  context?: { id: string }
+  /**
+   * Present when the customer swipe-replies to one of our messages
+   * (`id`), or forwards a message to us (`forwarded` — up to five
+   * hops; `frequently_forwarded` — more than five). Migration 040.
+   */
+  context?: { id?: string; forwarded?: boolean; frequently_forwarded?: boolean }
 }
 
 interface WhatsAppWebhookEntry {
@@ -717,6 +721,15 @@ async function processMessage(
         // the column; null for every other content_type so existing inserts
         // behave identically.
         interactive_reply_id: interactiveReplyId,
+        // Meta's forward flags (migration 040). Only sent when set, so a
+        // deploy that runs ahead of the migration still stores ordinary
+        // messages. "Frequently" implies forwarded for the UI.
+        ...(message.context?.forwarded || message.context?.frequently_forwarded
+          ? {
+              is_forwarded: true,
+              is_frequently_forwarded: message.context?.frequently_forwarded === true,
+            }
+          : {}),
       },
       { onConflict: 'conversation_id,message_id', ignoreDuplicates: true }
     )

@@ -2,6 +2,7 @@
 
 import { List, Reply } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { WaText } from "@/components/inbox/wa-text";
 import type { InteractiveMessagePayload } from "@/lib/whatsapp/interactive";
 
 /**
@@ -35,13 +36,16 @@ export function InteractivePreview({
           </p>
         ) : null}
         <p className="whitespace-pre-wrap break-words text-sm">
-          {payload.body || (
+          {payload.body ? (
+            // Same formatting + clickable links as plain text bubbles.
+            <WaText text={payload.body} />
+          ) : (
             <span className="text-muted-foreground">Message body…</span>
           )}
         </p>
         {payload.footer ? (
           <p className="mt-1 break-words text-[11px] text-muted-foreground">
-            {payload.footer}
+            <WaText text={payload.footer} />
           </p>
         ) : null}
       </div>

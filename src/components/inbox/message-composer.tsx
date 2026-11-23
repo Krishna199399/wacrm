@@ -9,6 +9,9 @@ import {
 } from "react";
 import {
   Send,
+  SendHorizontal,
+  Smile,
+  Camera,
   LayoutTemplate,
   Paperclip,
   Image as ImageIcon,
@@ -38,6 +41,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useCan } from "@/hooks/use-can";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -64,6 +72,17 @@ export const CHAT_MEDIA_BUCKET = "chat-media";
 
 /** Meta caps media captions at 1024 chars. Enforced here and in the send route. */
 export const MEDIA_CAPTION_MAX = 1024;
+
+/** Compact emoji palette for the composer — the everyday set agents
+ *  reach for, without shipping a full emoji-picker library. */
+const COMPOSER_EMOJIS = [
+  "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😉",
+  "🙂", "🤗", "🤔", "😅", "😇", "😎", "🥳", "😢",
+  "😮", "🙄", "😴", "😬", "👍", "👎", "👏", "🙏",
+  "🙌", "👌", "✌️", "🤝", "💪", "👋", "❤️", "💚",
+  "🔥", "✨", "🎉", "✅", "❌", "⭐", "💯", "📚",
+  "📖", "✏️", "📦", "🚚", "💰", "🎁", "📞", "⏰",
+];
 
 /** Hard cap on a single voice recording so it can't blow the upload/
  *  transcode limits — auto-stops the recorder when reached. */
@@ -112,7 +131,18 @@ interface MediaDraft {
 interface MessageComposerProps {
   conversationId: string;
   sessionExpired: boolean;
-  onSend: (text: string, replyToId?: string) => void;
+  onSend: (text: string, replyToId?: string, correctionOfId?: string) => void;
+  /** Called on each keystroke (throttled by the caller) for typing indicators. */
+  onTyping?: () => void;
+  /**
+   * "Edit" mode. The Cloud API can't edit a sent message, so the composer
+   * is pre-filled with the original text and sending delivers a new
+   * message that replies to (and is marked as a correction of) it.
+   */
+  correcting?: ReplyDraft | null;
+  onCancelCorrection?: () => void;
+  /** e.g. "Asha is typing a reply…" — warns before double-replying. */
+  typingNotice?: string | null;
   onSendMedia: (payload: SendMediaPayload) => void;
   onSendInteractive: (payload: InteractiveMessagePayload, replyToId?: string) => void;
   onOpenTemplates: () => void;
@@ -142,6 +172,10 @@ export function MessageComposer({
   replyTo,
   onClearReply,
   initialText,
+  onTyping,
+  correcting,
+  onCancelCorrection,
+  typingNotice,
 }: MessageComposerProps) {
   const t = useTranslations("Inbox.composer");
 
@@ -218,8 +252,8 @@ export function MessageComposer({
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    // Max 4 lines (~96px)
-    el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
+    // Max ~5 lines
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, []);
 
   // Update text and auto-expand if initialText changes (e.g. from deep link query)
@@ -239,7 +273,7 @@ export function MessageComposer({
 
     setSending(true);
     try {
-      onSend(trimmed, replyTo?.id);
+      onSend(trimmed, correcting ? undefined : replyTo?.id, correcting?.id);
       setText("");
       if (textareaRef.current) {
         textareaRef.current.style.height = "auto";
@@ -247,7 +281,7 @@ export function MessageComposer({
     } finally {
       setSending(false);
     }
-  }, [text, sending, sessionExpired, onSend, replyTo?.id]);
+  }, [text, sending, sessionExpired, onSend, replyTo?.id, correcting]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -263,8 +297,66 @@ export function MessageComposer({
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setText(e.target.value);
       adjustHeight();
+      if (e.target.value.trim()) onTyping?.();
     },
-    [adjustHeight]
+    [adjustHeight, onTyping]
+  );
+
+  // Entering edit (correction) mode pre-fills the original text and
+  // focuses the input; leaving it clears the draft it created.
+  const correctingId = correcting?.id;
+  const correctingText = correcting?.preview;
+  useEffect(() => {
+    if (!correctingId) return;
+    setText(correctingText ?? "");
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+    });
+  }, [correctingId, correctingText]);
+
+  // Quick-reply suggestion pills above the input. Fetched once per
+  // composer mount; the full picker (＋ menu) still lists everything.
+  const [suggestions, setSuggestions] = useState<QuickReply[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/quick-replies", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setSuggestions((data.quick_replies as QuickReply[]) ?? []);
+      } catch {
+        // Suggestions are optional — the ＋ menu still works.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Emoji popover: insert at the caret (replacing any selection) and
+  // keep focus in the textarea so typing continues naturally.
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const insertEmoji = useCallback(
+    (emoji: string) => {
+      const el = textareaRef.current;
+      const start = el?.selectionStart ?? text.length;
+      const end = el?.selectionEnd ?? text.length;
+      setText(text.slice(0, start) + emoji + text.slice(end));
+      requestAnimationFrame(() => {
+        if (!el) return;
+        el.focus();
+        const pos = start + emoji.length;
+        el.setSelectionRange(pos, pos);
+        adjustHeight();
+      });
+    },
+    [text, adjustHeight],
   );
 
   // Ask the AI assistant for a suggested reply and drop it into the
@@ -548,9 +640,58 @@ export function MessageComposer({
 
   // ---- Render --------------------------------------------------------
 
+  const hasText = !!text.trim();
+  const roundIcon =
+    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-wa-icon transition-colors hover:bg-wa-hover disabled:cursor-not-allowed disabled:opacity-50";
+  const pillIcon =
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-wa-icon transition-colors hover:text-wa-text disabled:cursor-not-allowed disabled:opacity-50";
+
   return (
-    <div className="border-t border-border bg-card p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
-      {replyTo && (
+    <div className="shrink-0 bg-wa-panel-header px-2 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] pt-2 sm:px-4">
+      {typingNotice && (
+        <p className="mb-1.5 flex items-center gap-1.5 px-1 text-xs font-medium text-wa-green">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-wa-green opacity-60" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-wa-green" />
+          </span>
+          {typingNotice}
+        </p>
+      )}
+      {correcting && (
+        <div className="mb-2">
+          <ReplyQuote
+            authorLabel={correcting.authorLabel}
+            preview={correcting.preview}
+            onDismiss={() => {
+              setText("");
+              onCancelCorrection?.();
+            }}
+          />
+          <p className="mt-1 px-1 text-[11px] text-wa-text-2">{t("correctionHint")}</p>
+        </div>
+      )}
+      {!draft &&
+        !recording &&
+        !correcting &&
+        !text.trim() &&
+        !inputsDisabled &&
+        suggestions.length > 0 && (
+          <div className="scrollbar-none -mx-1 mb-2 flex gap-2 overflow-x-auto px-1">
+            {suggestions.slice(0, 8).map((qr) => (
+              <button
+                key={qr.id}
+                type="button"
+                onClick={() => handlePickQuickReply(qr)}
+                title={qr.content_text ?? qr.title}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-wa-divider bg-wa-panel px-3.5 text-[13px] font-medium text-wa-text shadow-[0_1px_0.5px_rgba(11,20,26,0.08)] transition-colors hover:bg-wa-hover"
+              >
+                <Zap className="h-3.5 w-3.5 text-wa-green" />
+                <span className="max-w-48 truncate">{qr.title}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      {replyTo && !correcting && (
         <div className="mb-2">
           <ReplyQuote
             authorLabel={replyTo.authorLabel}
@@ -560,14 +701,14 @@ export function MessageComposer({
         </div>
       )}
       {sessionExpired && (
-        <div className="mb-2 flex items-center justify-between rounded-lg bg-amber-500/10 px-3 py-2">
-          <p className="text-xs text-amber-400">
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-amber-100 px-3 py-2 dark:bg-amber-500/10">
+          <p className="text-xs font-medium text-amber-800">
             {t("sessionExpiredHint")}
           </p>
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-xs text-amber-400 hover:text-amber-300"
+            className="h-7 shrink-0 text-xs font-semibold text-amber-800 hover:bg-amber-200/60"
             onClick={onOpenTemplates}
           >
             <LayoutTemplate className="mr-1 h-3 w-3" />
@@ -620,170 +761,218 @@ export function MessageComposer({
         />
       ) : recording ? (
         // Recording bar — replaces the composer while the mic is live.
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-muted px-4 py-2.5">
-          <span className="flex h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-red-500" />
-          <span className="flex-1 text-sm text-foreground">
-            {t("recording", { current: formatDuration(recordSeconds), max: formatDuration(MAX_RECORDING_SECONDS) })}
-          </span>
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={cancelRecording}
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
+            className="rounded-full px-3 py-2 text-sm font-medium text-wa-icon hover:bg-wa-hover"
           >
             {t("cancel")}
           </button>
-          <Button
-            size="sm"
+          <div className="flex flex-1 items-center gap-3 rounded-full bg-wa-panel px-4 py-2.5">
+            <span className="flex h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-red-500" />
+            <span className="flex-1 text-sm text-wa-text">
+              {t("recording", { current: formatDuration(recordSeconds), max: formatDuration(MAX_RECORDING_SECONDS) })}
+            </span>
+          </div>
+          <button
+            type="button"
             onClick={stopRecording}
-            className="h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90"
             title={t("stopAndAttach")}
+            aria-label={t("stopAndAttach")}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-wa-green text-white shadow-sm transition-colors hover:bg-wa-green-hover"
           >
-            <Square className="h-4 w-4" />
-          </Button>
+            <Square className="h-4 w-4 fill-current" />
+          </button>
         </div>
       ) : (
-        <div className="flex items-end gap-2">
-          {/* Attach menu — photo / video / document / voice. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              disabled={inputsDisabled || busy}
-              title={
-                readOnly
-                  ? t("readOnlyTitle")
-                  : inputsDisabled
-                    ? undefined
-                    : t("attachMedia")
-              }
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Paperclip className="h-4 w-4" />
-              )}
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="border-border bg-popover">
-              <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
-                <ImageIcon className="mr-2 h-4 w-4" />
-                {t("photo")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => videoInputRef.current?.click()}>
-                <Video className="mr-2 h-4 w-4" />
-                {t("video")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => documentInputRef.current?.click()}>
-                <FileText className="mr-2 h-4 w-4" />
-                {t("document")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => void startRecording()}>
-                <Mic className="mr-2 h-4 w-4" />
-                {t("voiceNote")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {/* + menu — interactive messages + quick replies. Gated on the
-              24h window like free-form text (interactive requires it). */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
+        <div className="flex items-end gap-1 sm:gap-1.5">
+          {/* Emoji picker */}
+          <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+            <PopoverTrigger
               disabled={inputsDisabled}
-              title={
-                readOnly
-                  ? t("readOnlyTitle")
-                  : inputsDisabled
-                    ? undefined
-                    : t("moreActions")
-              }
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label={t("emoji")}
+              title={t("emoji")}
+              className={cn(roundIcon, "mb-1 hidden sm:inline-flex")}
             >
-              <Plus className="h-4 w-4" />
+              <Smile className="h-6 w-6" />
+            </PopoverTrigger>
+            <PopoverContent align="start" sideOffset={10} className="w-[316px] p-2">
+              <div className="grid grid-cols-8 gap-0.5">
+                {COMPOSER_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => insertEmoji(emoji)}
+                    className="flex h-9 w-9 items-center justify-center rounded-md text-[22px] leading-none transition-colors hover:bg-muted"
+                    aria-label={emoji}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* + menu — interactive messages, quick replies, templates.
+              Interactive + quick replies need the 24h window; templates
+              are the way back in once it closes. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              disabled={readOnly}
+              title={readOnly ? t("readOnlyTitle") : t("moreActions")}
+              aria-label={t("moreActions")}
+              className={cn(roundIcon, "mb-1 data-popup-open:bg-wa-hover")}
+            >
+              <Plus className="h-6 w-6" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="border-border bg-popover">
-              <DropdownMenuItem onClick={() => openInteractiveBuilder()}>
+            <DropdownMenuContent align="start" side="top" className="min-w-52 border-border bg-popover">
+              <DropdownMenuItem disabled={inputsDisabled} onClick={() => openInteractiveBuilder()}>
                 <MessageSquareDashed className="mr-2 h-4 w-4" />
                 {t("interactiveMessage")}
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setQuickReplyOpen(true)}>
+              <DropdownMenuItem disabled={inputsDisabled} onClick={() => setQuickReplyOpen(true)}>
                 <Zap className="mr-2 h-4 w-4" />
                 {t("quickReplies")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onOpenTemplates}>
+                <LayoutTemplate className="mr-2 h-4 w-4" />
+                {t("sendTemplate")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <GatedButton
-            variant="ghost"
-            size="sm"
-            canAct={!readOnly}
-            gateReason="send messages"
-            title={readOnly ? undefined : t("sendTemplate")}
-            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-foreground"
-            onClick={onOpenTemplates}
-          >
-            <LayoutTemplate className="h-4 w-4" />
-          </GatedButton>
-
-          <GatedButton
-            variant="ghost"
-            size="sm"
-            canAct={!readOnly}
-            gateReason="send messages"
-            disabled={drafting}
-            title={readOnly ? undefined : t("draftWithAI")}
-            className="h-9 w-9 shrink-0 p-0 text-muted-foreground hover:text-primary"
-            onClick={handleDraft}
-          >
-            {drafting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-          </GatedButton>
-
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              readOnly
-                ? t("readOnlyPlaceholder")
-                : sessionExpired
-                  ? t("sessionExpiredPlaceholder")
-                  : t("typeMessagePlaceholder")
-            }
-            disabled={sessionExpired || readOnly}
-            rows={1}
-            // Textarea keeps its own inline title — the GatedButton
-            // wrapping pattern doesn't apply to non-button inputs.
-            // The placeholder text also surfaces the read-only state.
-            title={readOnly ? t("readOnlyTitle") : undefined}
+          {/* Input pill: textarea + AI draft + attach + camera */}
+          <div
             className={cn(
-              "flex-1 resize-none rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50",
-              (sessionExpired || readOnly) && "cursor-not-allowed opacity-50"
+              "flex min-w-0 flex-1 items-end rounded-[22px] bg-wa-panel pl-4 pr-1 shadow-[0_1px_0.5px_rgba(11,20,26,0.08)]",
+              (sessionExpired || readOnly) && "opacity-60",
             )}
-          />
-
-          <GatedButton
-            size="sm"
-            canAct={!readOnly}
-            gateReason="send messages"
-            disabled={!text.trim() || sessionExpired || sending}
-            onClick={handleSend}
-            className="h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40"
           >
-            <Send className="h-4 w-4" />
-          </GatedButton>
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                readOnly
+                  ? t("readOnlyPlaceholder")
+                  : sessionExpired
+                    ? t("sessionExpiredPlaceholder")
+                    : t("typeMessagePlaceholder")
+              }
+              disabled={sessionExpired || readOnly}
+              rows={1}
+              // Textarea keeps its own inline title — the GatedButton
+              // wrapping pattern doesn't apply to non-button inputs.
+              title={readOnly ? t("readOnlyTitle") : undefined}
+              className="wa-scroll max-h-36 min-h-[44px] min-w-0 flex-1 resize-none bg-transparent py-[11px] text-[15px] leading-[22px] text-wa-text outline-none placeholder:text-wa-text-2 disabled:cursor-not-allowed"
+            />
+
+            <div className="flex shrink-0 items-center pb-1">
+              <GatedButton
+                variant="ghost"
+                size="sm"
+                canAct={!readOnly}
+                gateReason="send messages"
+                disabled={drafting || sessionExpired}
+                title={readOnly ? undefined : t("draftWithAI")}
+                aria-label={t("draftWithAI")}
+                className={cn(pillIcon, "p-0 hover:bg-transparent hover:text-wa-green")}
+                onClick={handleDraft}
+              >
+                {drafting ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-5 w-5" />
+                )}
+              </GatedButton>
+
+              {/* Attach menu — photo / video / document / voice. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  disabled={inputsDisabled || busy}
+                  title={
+                    readOnly
+                      ? t("readOnlyTitle")
+                      : inputsDisabled
+                        ? undefined
+                        : t("attachMedia")
+                  }
+                  aria-label={t("attachMedia")}
+                  className={pillIcon}
+                >
+                  {busy ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Paperclip className="h-5 w-5 -rotate-45" />
+                  )}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="top" className="border-border bg-popover">
+                  <DropdownMenuItem onClick={() => imageInputRef.current?.click()}>
+                    <ImageIcon className="mr-2 h-4 w-4 text-[#007bfc]" />
+                    {t("photo")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => videoInputRef.current?.click()}>
+                    <Video className="mr-2 h-4 w-4 text-[#ff2e74]" />
+                    {t("video")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => documentInputRef.current?.click()}>
+                    <FileText className="mr-2 h-4 w-4 text-[#7f66ff]" />
+                    {t("document")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void startRecording()}>
+                    <Mic className="mr-2 h-4 w-4 text-[#f97316]" />
+                    {t("voiceNote")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <button
+                type="button"
+                disabled={inputsDisabled || busy}
+                onClick={() => imageInputRef.current?.click()}
+                title={inputsDisabled ? undefined : t("photo")}
+                aria-label={t("photo")}
+                className={cn(pillIcon, "hidden sm:inline-flex")}
+              >
+                <Camera className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Round action button: send when there's text, otherwise the
+              mic (voice note) — the WhatsApp behaviour. */}
+          {hasText ? (
+            <GatedButton
+              size="sm"
+              canAct={!readOnly}
+              gateReason="send messages"
+              disabled={sessionExpired || sending}
+              onClick={handleSend}
+              aria-label={t("send")}
+              title={t("send")}
+              className="h-12 w-12 shrink-0 rounded-full bg-wa-green p-0 text-white shadow-sm hover:bg-wa-green-hover disabled:opacity-50"
+            >
+              <SendHorizontal className="h-5 w-5" />
+            </GatedButton>
+          ) : (
+            <GatedButton
+              size="sm"
+              canAct={!readOnly}
+              gateReason="send messages"
+              disabled={inputsDisabled || busy}
+              onClick={() => void startRecording()}
+              aria-label={t("voiceNote")}
+              title={t("voiceNote")}
+              className="h-12 w-12 shrink-0 rounded-full bg-wa-green p-0 text-white shadow-sm hover:bg-wa-green-hover disabled:opacity-50"
+            >
+              <Mic className="h-[22px] w-[22px]" />
+            </GatedButton>
+          )}
         </div>
       )}
 
-      {/* Hint sits outside the flex row so its height doesn't push
-          `items-end` buttons below the textarea. Indented to line up
-          under the textarea left edge. */}
-      {!draft && !recording && (
-        <p className="mt-1 pl-[5.5rem] text-[10px] text-muted-foreground">
-          {t("draftHint")}
-        </p>
-      )}
 
       {/* Interactive-message builder dialog. */}
       <Dialog open={interactiveOpen} onOpenChange={setInteractiveOpen}>
@@ -852,7 +1041,7 @@ function MediaDraftPreview({
   t: ReturnType<typeof useTranslations>;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-muted/40 p-3">
+    <div className="rounded-xl bg-wa-panel p-3 shadow-sm">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           {draft.kind === "image" && (
@@ -899,7 +1088,7 @@ function MediaDraftPreview({
               }
             }}
             placeholder={t("addCaption")}
-            className="flex-1 rounded-xl border border-border bg-muted px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground outline-none transition-colors focus:border-primary/50"
+            className="flex-1 rounded-full bg-wa-surface px-4 py-2.5 text-sm text-wa-text outline-none placeholder:text-wa-text-2 focus:ring-2 focus:ring-wa-green/50"
           />
         )}
         <GatedButton
@@ -909,7 +1098,7 @@ function MediaDraftPreview({
           disabled={busy}
           onClick={onSend}
           className={cn(
-            "h-9 w-9 shrink-0 bg-primary p-0 hover:bg-primary/90 disabled:opacity-40",
+            "h-11 w-11 shrink-0 rounded-full bg-wa-green p-0 text-white hover:bg-wa-green-hover disabled:opacity-40",
             draft.kind === "audio" && "ml-auto",
           )}
         >

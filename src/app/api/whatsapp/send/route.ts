@@ -58,6 +58,7 @@ export async function POST(request: Request) {
       template_message_params,
       interactive_payload,
       reply_to_message_id,
+      correction_of_message_id,
     } = body
 
     if ((!conversationIdInput && !contact_id) || !message_type) {
@@ -165,6 +166,10 @@ export async function POST(request: Request) {
         templateMessageParams: template_message_params,
         interactivePayload: interactive_payload,
         replyToMessageId: reply_to_message_id,
+        correctionOfMessageId:
+          typeof correction_of_message_id === 'string'
+            ? correction_of_message_id
+            : null,
       })
 
       return NextResponse.json({

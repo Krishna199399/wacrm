@@ -9,6 +9,76 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [Unreleased] — WhatsApp Business look
+
+The app shell and shared inbox now look and behave like WhatsApp Business.
+
+> **Migration required:** apply `supabase/migrations/040_inbox_whatsapp_features.sql`
+> (forwarded / star / pin / correction columns). Until it runs, starring and
+> pinning fail with a toast, and a correction reaches the customer but
+> fails to save in the CRM. Receiving and sending ordinary messages keeps
+> working.
+
+### Added — WhatsApp-style message features
+
+- **Edit → send a correction.** The Cloud API can't edit a sent message, so
+  "Edit" on your own text message pre-fills the composer; sending delivers a
+  new message that replies to the original and is labelled "Correction".
+- **Typing indicators.** While an agent types, the customer sees "typing…"
+  on their phone (Meta's typing indicator; it also marks their messages
+  read), and teammates see "Asha is typing…" in the chat header plus a
+  warning above the composer. WhatsApp never reports the customer typing.
+- **Online dots for the team** — on your avatar in the top bar and on the
+  assignee in the chat header. (WhatsApp doesn't share customer presence.)
+- **Forwarded labels** — "Forwarded" / "Forwarded many times" from Meta's
+  webhook flags.
+- **Voice-note player** — real waveform (decoded in the browser), click to
+  seek, 1× / 1.5× / 2× speed, one note plays at a time.
+- **Quick-reply pills** above the composer (your saved quick replies).
+- **Star and pin** messages (shared with the team), a pinned-message banner
+  that jumps to the message, and **pinned chats** at the top of the list.
+
+### Changed
+
+- **App shell:** a full-width dark-green top bar (brand, verified badge,
+  CRM chip, notifications bell, account menu) and a green navigation rail
+  with icon + label items on desktop. Pages sit on a light card with a
+  rounded top-left corner. On phones, a WhatsApp-style bottom tab bar
+  (active tab in a green pill) plus the existing slide-out drawer.
+- **Chat list:** "Chats" header with new-chat and filter-menu buttons, a
+  pill search box, filter pills (All / Unread with count / Open /
+  Pending / Closed), pastel letter avatars, green unread badges, and
+  WhatsApp time labels ("10:24 AM", "Yesterday", "Nov 19"). Tag and
+  company filters moved into the ⋮ menu.
+- **Conversation:** beige doodle wallpaper, white incoming and light-green
+  outgoing bubbles with tails on the first bubble of each run, inline
+  time + blue read ticks, sticky date chips, and WhatsApp text formatting
+  (`*bold*`, `_italic_`, `~strike~`, ```` ```mono``` ````, clickable links).
+- **Composer:** emoji, ＋ menu (interactive message, quick replies,
+  template), a rounded input with AI draft / attach / camera inside, and
+  a round green button that records a voice note when empty and sends
+  when there is text.
+- **Contact panel:** restyled as WhatsApp's "Contact info" drawer with a
+  close button, large avatar, Call and Copy number actions, and section
+  cards for tags, deals, and notes. Clicking the chat header avatar/name
+  toggles it.
+- **Defaults:** new visitors get light mode and the new "WhatsApp" accent
+  (`#008069`). Existing saved theme/mode choices are kept; the WhatsApp
+  accent can be picked in Settings → Appearance.
+
+### Added
+
+- **Start a new chat from search:** typing a phone number that matches no
+  conversation offers "Start a new chat" (find-or-create via
+  `/api/inbox/resolve-phone`).
+- **Search inside a conversation** (header magnifier) and a **Call** button
+  (`tel:` link) in the chat header.
+
+### Fixed
+
+- Message bubbles had no background colour: the previous token classes
+  wrapped `oklch()` values in `hsl()`, which is invalid CSS.
+
 ## [0.8.1] — 2026-07-10
 
 Fixes inbound chats fragmenting into multiple threads for the same

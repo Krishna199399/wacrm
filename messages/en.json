@@ -38,7 +38,8 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Profile",
     "menuSettings": "Settings",
-    "menuSignOut": "Sign out"
+    "menuSignOut": "Sign out",
+    "chats": "Chats"
   },
   "Header": {
     "dashboard": "Dashboard",
@@ -55,7 +56,20 @@
     "defaultAvatar": "Avatar",
     "menuProfile": "Profile",
     "menuSettings": "Settings",
-    "menuSignOut": "Sign out"
+    "menuSignOut": "Sign out",
+    "brandTitle": "{name} WhatsApp",
+    "brandFallback": "WhatsApp CRM",
+    "verified": "Verified business",
+    "crmChip": "CRM",
+    "notificationsUnread": "{count} unread {count, plural, =1 {notification} other {notifications}}",
+    "enableNotifications": "Enable desktop notifications",
+    "notificationsUnsupported": "Notifications are not supported in this browser",
+    "notificationsEnabled": "Notifications enabled! You will be alerted on new WhatsApp messages.",
+    "notificationsDenied": "Notification permission denied",
+    "notificationsError": "Could not request notification permissions",
+    "presence_online": "Online",
+    "presence_away": "Away",
+    "presence_offline": "Offline"
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
@@ -134,10 +148,11 @@
   },
   "Inbox": {
     "page": {
-      "whatsappNotConnected": "WhatsApp® is not connected. Go to Settings to connect your account."
+      "whatsappNotConnected": "WhatsApp® is not connected. Go to Settings to connect your account.",
+      "startChatFailed": "Couldn't start the chat. Check the number and try again."
     },
     "conversationList": {
-      "searchPlaceholder": "Search conversations...",
+      "searchPlaceholder": "Search or start a new chat",
       "filterAll": "All",
       "filterUnread": "Unread",
       "filterOpen": "Open",
@@ -149,7 +164,15 @@
       "clearAll": "Clear all",
       "noConversations": "No conversations found",
       "noMessagesYet": "No messages yet",
-      "unknown": "Unknown"
+      "unknown": "Unknown",
+      "title": "Chats",
+      "newChat": "New chat",
+      "filterMenu": "Filter chats",
+      "noFilters": "No tag or company filters yet",
+      "clearSearch": "Clear search",
+      "startChat": "Start a new chat",
+      "yesterday": "Yesterday",
+      "pinned": "Pinned"
     },
     "messageThread": {
       "backToConversations": "Back to conversations",
@@ -170,10 +193,29 @@
       "me": " (me)",
       "noMessagesYet": "No messages yet",
       "sendTemplateHint": "Send a template to start the conversation",
-      "selectConversation": "Select a conversation",
-      "selectConversationHint": "Choose a conversation from the left to start messaging",
+      "selectConversation": "Select a chat",
+      "selectConversationHint": "Pick a conversation from the list to read and reply. Messages go out through your WhatsApp Business number.",
       "today": "Today",
-      "yesterday": "Yesterday"
+      "yesterday": "Yesterday",
+      "call": "Call",
+      "searchMessages": "Search messages",
+      "closeSearch": "Close search",
+      "searchResults": "{count, plural, =1 {# match} other {# matches}}",
+      "searchNoResults": "No messages match your search",
+      "contactInfo": "Contact info",
+      "moreOptions": "More options",
+      "you": "You",
+      "teammate": "A teammate",
+      "teammateTyping": "{name} is typing…",
+      "teammatesTyping": "{count} teammates are typing…",
+      "teammateReplying": "{name} is typing a reply…",
+      "starFailed": "Couldn't update the star. Try again.",
+      "pinFailed": "Couldn't update the pin. Try again.",
+      "editingMessage": "Editing message",
+      "pinChat": "Pin chat",
+      "unpinChat": "Unpin chat",
+      "unpinMessage": "Unpin message",
+      "pinnedCount": "{index} of {count}"
     },
     "sessionTimer": {
       "expired": "Expired",
@@ -187,7 +229,7 @@
       "templates": "Templates",
       "readOnlyPlaceholder": "Read-only — viewers can browse but not reply",
       "sessionExpiredPlaceholder": "Session expired - use a template",
-      "typeMessagePlaceholder": "Type a message... (Shift+Enter for new line)",
+      "typeMessagePlaceholder": "Type a message",
       "readOnlyTitle": "Read-only — your role can't send messages",
       "recording": "Recording… {current} / {max}",
       "cancel": "Cancel",
@@ -209,7 +251,9 @@
       "send": "Send",
       "quickReplyNamePrompt": "Name this quick reply:",
       "quickReplySaved": "Saved as a quick reply.",
-      "quickReplySaveError": "Couldn't save the quick reply."
+      "quickReplySaveError": "Couldn't save the quick reply.",
+      "emoji": "Emoji",
+      "correctionHint": "WhatsApp can't change a message after it's sent — this sends your corrected text as a reply to the original, marked as a correction."
     },
     "bubble": {
       "photo": "Photo",
@@ -228,7 +272,15 @@
       "downloadFailed": "Couldn't download the attachment",
       "viewImage": "View image",
       "expandVideo": "Expand video",
-      "imageAlt": "Shared image"
+      "imageAlt": "Shared image",
+      "playVoice": "Play voice message",
+      "pauseVoice": "Pause voice message",
+      "playbackSpeed": "Playback speed",
+      "forwarded": "Forwarded",
+      "forwardedMany": "Forwarded many times",
+      "correction": "Correction",
+      "pinned": "Pinned",
+      "starred": "Starred"
     },
     "mediaViewer": {
       "counter": "{index} of {total}",
@@ -251,7 +303,13 @@
       "reactWith": "React with {emoji}",
       "nothingToCopy": "Nothing to copy",
       "copied": "Copied",
-      "copyFailed": "Copy failed"
+      "copyFailed": "Copy failed",
+      "more": "More actions",
+      "star": "Star",
+      "unstar": "Unstar",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "edit": "Edit (send correction)"
     },
     "replyQuote": {
       "photo": "[Photo]",
@@ -286,7 +344,12 @@
       "deals": "Deals",
       "noTags": "No tags",
       "noDeals": "No deals",
-      "addNotePlaceholder": "Add a note..."
+      "addNotePlaceholder": "Add a note...",
+      "call": "Call",
+      "copyNumber": "Copy number",
+      "copied": "Copied",
+      "email": "Email",
+      "addNote": "Add note"
     },
     "aiBanner": {
       "pausedTitle": "AI assistant is paused here",
@@ -384,9 +447,9 @@
         "custom": "Custom Fields",
         "deals": "Deals",
         "tags": "Tags",
-      "noTags": "No tags",
-      "noDeals": "No deals",
-      "addNotePlaceholder": "Add a note..."
+        "noTags": "No tags",
+        "noDeals": "No deals",
+        "addNotePlaceholder": "Add a note..."
       },
       "actions": {
         "edit": "Edit",
@@ -1369,13 +1432,11 @@
       "deleteLocallyAria": "Delete template locally",
       "deleteMetaLocallyTitle": "Delete from Meta and locally",
       "deleteLocallyTitle": "Delete locally",
-      
       "dialogEditTitle": "Edit Message Template",
       "dialogNewTitle": "New Message Template",
       "dialogEditDesc": "Save your changes to re-submit to Meta. Status will flip back to PENDING during review.",
       "dialogNewDesc": "Build a template and submit it to Meta for approval. Once approved, you can use it in broadcasts and the inbox.",
       "authWarning": "AUTHENTICATION templates have a fixed body + OTP button shape that needs a different builder. Create them in Meta WhatsApp Manager for now and use <bold>Sync from Meta</bold> to bring them in.",
-      
       "templateName": "Template Name",
       "namePlaceholder": "e.g. order_confirmation",
       "nameFixed": "Name is fixed once a template exists on Meta — create a new template to change it.",
@@ -1384,7 +1445,6 @@
       "language": "Language",
       "langFixed": "Language is fixed once a template exists on Meta.",
       "langHint": "Must match the exact code on Meta — <code>en_US</code> and <code>en</code> are distinct.",
-      
       "header": "Header",
       "headerNone": "None",
       "headerText": "Text",
@@ -1394,7 +1454,6 @@
       "headerTextPlaceholder": "Header text (max 60 chars, optional {{1}})",
       "headerSampleAria": "Sample value for header variable",
       "headerSamplePlaceholder": "Sample value for {{1}} (required for Meta review)",
-      
       "uploadImage": "Upload image",
       "uploadHint": "JPEG or PNG, ≤5 MB",
       "mediaUrlPlaceholder": "https://… (or paste a public {format} link)",
@@ -1402,17 +1461,14 @@
       "mediaHint": "Must be a publicly accessible HTTPS link. Meta fetches it once during review, so it needs to stay live for ~24 hrs.",
       "videoHint": " Recommended: MP4 / 3GPP, ≤16 MB, ≤60 seconds.",
       "documentHint": " Recommended: PDF, ≤100 MB.",
-      
       "bodyText": "Body Text",
       "bodyPlaceholder": "Hello {{1}}, your order {{2}} is confirmed.",
       "bodyHint": "Use {{1}}, {{2}} for variables (must be contiguous starting at {{1}}).",
       "sampleValues": "Sample values (Meta uses these to review your template)",
       "sampleAria": "Sample value for body variable {var}",
       "samplePlaceholder": "Sample for {var}",
-      
       "footer": "Footer (optional)",
       "footerPlaceholder": "Optional footer text (max 60 chars)",
-      
       "buttons": "Buttons (optional)",
       "addButton": "Add Button",
       "buttonsLimit": "Up to {max} buttons. QUICK_REPLY buttons must come before URL / phone / copy-code buttons.",
@@ -1425,19 +1481,16 @@
       "urlSamplePlaceholder": "Example value for {{1}} (required when URL has a variable)",
       "phonePlaceholder": "+15551234567",
       "codePlaceholder": "Example code (e.g. SUMMER20)",
-      
       "cancel": "Cancel",
       "saving": "Saving…",
       "submitting": "Submitting…",
       "saveResubmit": "Save & Resubmit",
       "submitApproval": "Submit for Approval",
-      
       "deleteDialogTitle": "Delete template?",
       "deleteMetaDesc": "\"{name}\" will be deleted from Meta and from WhatsApp CRM. Active broadcasts using this template will start failing on their next send. This can't be undone.",
       "deleteLocalDesc": "\"{name}\" will be deleted from WhatsApp CRM. It was never submitted to Meta, so no remote cleanup is needed.",
       "deleting": "Deleting…",
       "delete": "Delete",
-      
       "toastLoadFailed": "Failed to load templates",
       "toastSubmitFailed": "Failed to submit",
       "toastSubmitEditSuccess": "Edit submitted — Meta typically reviews within 24 hours.",
@@ -1583,7 +1636,6 @@
       "profileSaved": "Profile saved",
       "emailChangeFailed": "Email change failed: {message}",
       "profileSavedEmailCheck": "Profile saved — check your email to confirm the address change",
-      
       "passwordTitle": "Password",
       "passwordDesc": "Use at least {min} characters. You will stay signed in on this device after changing it.",
       "currentPassword": "Current password",
@@ -1597,7 +1649,6 @@
       "currentPasswordIncorrect": "Current password is incorrect",
       "passwordUpdateFailed": "Password update failed: {message}",
       "passwordUpdated": "Password updated",
-      
       "sessionsTitle": "Active sessions",
       "sessionsDesc": "Sign out of every device where you're logged in — including this one. Useful if you lost a laptop or shared your password.",
       "signOutAll": "Sign out of all devices",

@@ -88,6 +88,12 @@ export interface SendMessageParams {
   /** Structured payload for `messageType === 'interactive'`. */
   interactivePayload?: InteractiveMessagePayload | null;
   replyToMessageId?: string | null;
+  /**
+   * Marks this send as a correction of an earlier message of ours (the
+   * Cloud API can't edit a sent message). Must be an agent/bot message
+   * in the same conversation. Migration 040.
+   */
+  correctionOfMessageId?: string | null;
 }
 
 export interface SendMessageResult {
@@ -201,6 +207,7 @@ export async function sendMessageToConversation(
     templateMessageParams,
     interactivePayload,
     replyToMessageId,
+    correctionOfMessageId,
   } = params;
 
   if (!conversationId) {
@@ -282,6 +289,23 @@ export async function sendMessageToConversation(
           );
         }
       });
+  }
+
+  // A correction must point at one of our own messages in this thread.
+  if (correctionOfMessageId) {
+    const { data: original } = await db
+      .from('messages')
+      .select('id, sender_type')
+      .eq('id', correctionOfMessageId)
+      .eq('conversation_id', conversationId)
+      .maybeSingle();
+    if (!original || (original.sender_type !== 'agent' && original.sender_type !== 'bot')) {
+      throw new SendMessageError(
+        'bad_request',
+        'correction_of_message_id must be one of your messages in this conversation',
+        400
+      );
+    }
   }
 
   // Resolve the reply target to its Meta message_id. The parent must
@@ -482,6 +506,11 @@ export async function sendMessageToConversation(
       message_id: waMessageId,
       status: 'sent',
       reply_to_message_id: replyToMessageId || null,
+      // Only written when set, so sends keep working on a database that
+      // hasn't run migration 040 yet.
+      ...(correctionOfMessageId
+        ? { correction_of_message_id: correctionOfMessageId }
+        : {}),
     })
     .select()
     .single();

@@ -148,6 +148,20 @@ html[data-mode="light"] {
 /* ---- ACCENT: primary color ---- */
 
 :root,
+html[data-theme="whatsapp"] {
+  --primary: #008069;
+  --primary-foreground: #ffffff;
+  --primary-hover: #017561;
+  --primary-soft: rgb(0 128 105 / 0.12);
+  --primary-soft-2: rgb(0 128 105 / 0.2);
+  --ring: #008069;
+  --chart-1: #00a884;
+  --chart-2: #53bdeb;
+  --sidebar-primary: #008069;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-ring: #008069;
+}
+
 html[data-theme="violet"] {
   --primary: oklch(0.526 0.247 293);
   --primary-foreground: oklch(0.985 0 0);
@@ -244,4 +258,171 @@ html[data-theme="rose"] {
 }
 .pr-safe {
   padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* ============================================================
+ * WHATSAPP BUSINESS SURFACE TOKENS
+ *
+ * Chrome (top app bar + nav rail) and inbox surfaces that mimic
+ * WhatsApp Business. Independent of the accent theme on purpose:
+ * the messaging chrome keeps its brand look whichever accent the
+ * user picks for buttons elsewhere. Exposed to Tailwind as
+ * `bg-wa-*` / `text-wa-*` / `border-wa-*` via the @theme block
+ * below.
+ * ============================================================ */
+
+@theme inline {
+  --color-wa-bar: var(--wa-bar);
+  --color-wa-bar-fg: var(--wa-bar-fg);
+  --color-wa-bar-muted: var(--wa-bar-muted);
+  --color-wa-bar-hover: var(--wa-bar-hover);
+  --color-wa-bar-active: var(--wa-bar-active);
+  --color-wa-green: var(--wa-green);
+  --color-wa-green-hover: var(--wa-green-hover);
+  --color-wa-green-soft: var(--wa-green-soft);
+  --color-wa-panel: var(--wa-panel);
+  --color-wa-panel-header: var(--wa-panel-header);
+  --color-wa-surface: var(--wa-surface);
+  --color-wa-hover: var(--wa-hover);
+  --color-wa-selected: var(--wa-selected);
+  --color-wa-divider: var(--wa-divider);
+  --color-wa-text: var(--wa-text);
+  --color-wa-text-2: var(--wa-text-2);
+  --color-wa-icon: var(--wa-icon);
+  --color-wa-chat: var(--wa-chat-bg);
+  --color-wa-in: var(--wa-in);
+  --color-wa-out: var(--wa-out);
+  --color-wa-meta: var(--wa-meta);
+  --color-wa-tick: var(--wa-tick);
+  --color-wa-chip: var(--wa-chip);
+  --color-wa-chip-fg: var(--wa-chip-fg);
+  --color-wa-link: var(--wa-link);
+  --color-wa-quote: var(--wa-quote);
+}
+
+/* Dark is the :root fallback, matching the MODE blocks above. */
+:root,
+html[data-mode="dark"] {
+  --wa-bar: #0d3a2e;
+  --wa-bar-fg: #ffffff;
+  --wa-bar-muted: rgb(255 255 255 / 0.72);
+  --wa-bar-hover: rgb(255 255 255 / 0.08);
+  --wa-bar-active: rgb(255 255 255 / 0.14);
+  --wa-green: #21c063;
+  --wa-green-hover: #1daa61;
+  --wa-green-soft: rgb(33 192 99 / 0.16);
+  --wa-panel: #111b21;
+  --wa-panel-header: #202c33;
+  --wa-surface: #202c33;
+  --wa-hover: #202c33;
+  --wa-selected: #2a3942;
+  --wa-divider: #222d34;
+  --wa-text: #e9edef;
+  --wa-text-2: #8696a0;
+  --wa-icon: #aebac1;
+  --wa-chat-bg: #0b141a;
+  --wa-doodle: rgb(255 255 255 / 0.045);
+  --wa-in: #202c33;
+  --wa-out: #005c4b;
+  --wa-meta: rgb(233 237 239 / 0.6);
+  --wa-tick: #53bdeb;
+  --wa-chip: #182229;
+  --wa-chip-fg: #8696a0;
+  --wa-link: #53bdeb;
+  --wa-quote: rgb(0 0 0 / 0.2);
+}
+
+html[data-mode="light"] {
+  --wa-bar: #0b5c45;
+  --wa-bar-fg: #ffffff;
+  --wa-bar-muted: rgb(255 255 255 / 0.8);
+  --wa-bar-hover: rgb(255 255 255 / 0.08);
+  --wa-bar-active: rgb(255 255 255 / 0.16);
+  --wa-green: #1daa61;
+  --wa-green-hover: #168f50;
+  --wa-green-soft: #d9fdd3;
+  --wa-panel: #ffffff;
+  --wa-panel-header: #f7f8fa;
+  --wa-surface: #f0f2f5;
+  --wa-hover: #f5f6f6;
+  --wa-selected: #e7f4ed;
+  --wa-divider: #e9edef;
+  --wa-text: #111b21;
+  --wa-text-2: #667781;
+  --wa-icon: #54656f;
+  --wa-chat-bg: #efeae2;
+  --wa-doodle: rgb(84 72 52 / 0.075);
+  --wa-in: #ffffff;
+  --wa-out: #d9fdd3;
+  --wa-meta: #667781;
+  --wa-tick: #53bdeb;
+  --wa-chip: #ffffff;
+  --wa-chip-fg: #54656f;
+  --wa-link: #027eb5;
+  --wa-quote: rgb(11 20 26 / 0.05);
+}
+
+/* Chat wallpaper: beige (or near-black) base with a doodle layer.
+ * The doodle SVG is used as a mask so its colour comes from
+ * --wa-doodle and follows light/dark mode. `isolation` keeps the
+ * z-index:-1 layer inside this element, above the base colour. */
+.wa-wallpaper {
+  position: relative;
+  isolation: isolate;
+  background-color: var(--wa-chat-bg);
+}
+.wa-wallpaper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--wa-doodle);
+  -webkit-mask-image: url("/wa-doodle.svg");
+  mask-image: url("/wa-doodle.svg");
+  -webkit-mask-size: 260px 260px;
+  mask-size: 260px 260px;
+  -webkit-mask-repeat: repeat;
+  mask-repeat: repeat;
+}
+
+/* Bubble tails: a small notch on the top-outer corner of the first
+ * bubble in a run, like WhatsApp. Drawn with a clipped square in the
+ * bubble's own colour so it tracks light/dark automatically. */
+.wa-bubble-tail-in,
+.wa-bubble-tail-out {
+  position: relative;
+}
+.wa-bubble-tail-in::before,
+.wa-bubble-tail-out::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 13px;
+  background-color: inherit;
+}
+.wa-bubble-tail-in::before {
+  left: -8px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+.wa-bubble-tail-out::before {
+  right: -8px;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+/* Thin, unobtrusive scrollbars inside the messaging panels. */
+.wa-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(0 0 0 / 0.2) transparent;
+}
+html[data-mode="dark"] .wa-scroll {
+  scrollbar-color: rgb(255 255 255 / 0.16) transparent;
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }

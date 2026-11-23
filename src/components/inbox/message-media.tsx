@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import type { Message } from "@/types";
 import { downloadMediaMessage } from "@/lib/media/download";
 import { useMediaBlobUrl } from "@/hooks/use-media-blob-url";
+import { VoiceNote } from "./voice-note";
 
 /**
  * The media renderers behind `<MessageBubble>`'s image / video / audio /
@@ -231,10 +232,20 @@ export function MediaAudioBubble({
   t: Translator;
 }) {
   const { downloading, download } = useMediaDownload(message, t);
+  const outgoing = message.sender_type === "agent" || message.sender_type === "bot";
 
   return (
-    <div className="flex items-center gap-2">
-      <audio src={message.media_url} controls className="max-w-60" />
+    <div className="flex items-center gap-1">
+      <VoiceNote
+        src={message.media_url!}
+        seed={message.id}
+        outgoing={outgoing}
+        labels={{
+          play: t("playVoice"),
+          pause: t("pauseVoice"),
+          speed: t("playbackSpeed"),
+        }}
+      />
       <MediaActionButton
         icon={Download}
         label={t("download")}

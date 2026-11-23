@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
+import { NavRail } from "@/components/layout/nav-rail";
 import { AccountAccessAlert } from "@/components/layout/account-access-alert";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { MobileNav } from "@/components/layout/mobile-nav";
@@ -46,20 +47,24 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background">
+    // WhatsApp Business frame: a dark-green top app bar across the full
+    // width, a green nav rail on the left (desktop), and the page itself
+    // on a light card with a rounded top-left corner.
+    <div className="flex h-dvh flex-col overflow-hidden bg-wa-bar">
       {/* Reports this tab's online/away presence once we know a user is
           signed in. Headless — renders nothing. */}
       <PresenceHeartbeat />
+      {/* Mobile-only drawer (hamburger in the top bar opens it). */}
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
-      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
-        <Header onOpenSidebar={() => setSidebarOpen(true)} />
-        {/* Full-bleed edge-to-edge layout for inbox; padded for other pages */}
+      <Header onOpenSidebar={() => setSidebarOpen(true)} />
+      <div className="flex min-h-0 flex-1">
+        <NavRail />
         <main
           className={cn(
-            "flex-1 overflow-y-auto min-w-0 w-full",
+            "min-w-0 flex-1 overflow-y-auto lg:rounded-tl-[18px]",
             isInbox
-              ? "p-0 overflow-hidden"
-              : "p-4 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:p-6 lg:pb-6"
+              ? "overflow-hidden bg-wa-panel p-0"
+              : "bg-background p-4 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:p-6 lg:pb-6",
           )}
         >
           {/* Above every page: writes are being rejected and here's why.
@@ -67,11 +72,11 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
           <AccountAccessAlert />
           {children}
         </main>
-        {/* Bottom tab bar for mobile like WhatsApp Business */}
-        <MobileNav />
-        {/* Floating Add-to-Home-Screen prompt for iPhone users */}
-        <IosInstallPrompt />
       </div>
+      {/* Bottom tab bar for mobile like WhatsApp Business */}
+      <MobileNav />
+      {/* Floating Add-to-Home-Screen prompt for iPhone users */}
+      <IosInstallPrompt />
     </div>
   );
 }

@@ -15,39 +15,24 @@ interface ReplyQuoteProps {
   /** Present → renders the composer-chip variant with an X button. Absent →
    *  renders the embedded-in-bubble variant. */
   onDismiss?: () => void;
-  /** True when embedded inside an outbound (primary-filled) bubble, so the
-   *  quote must read against the primary surface rather than the neutral
-   *  foreground — otherwise it goes low-contrast in light mode. */
+  /** Deprecated: bubbles are no longer primary-filled, so the quote
+   *  reads the same on both sides. Accepted for compatibility. */
   onPrimary?: boolean;
 }
 
-export function ReplyQuote({
-  authorLabel,
-  preview,
-  onDismiss,
-  onPrimary = false,
-}: ReplyQuoteProps) {
+/** WhatsApp-style quoted message: tinted card with a green left bar. */
+export function ReplyQuote({ authorLabel, preview, onDismiss }: ReplyQuoteProps) {
   const t = useTranslations("Inbox.replyQuote");
   const isChip = !!onDismiss;
   return (
     <div
       className={cn(
-        "flex items-start gap-2 border-l-2 px-2 py-1",
-        onPrimary ? "border-primary-foreground/50" : "border-primary",
-        isChip
-          ? "rounded-md bg-muted/80"
-          : onPrimary
-            ? "mb-1.5 rounded-md bg-primary-foreground/15"
-            : "mb-1.5 rounded-md bg-background/20",
+        "flex items-start gap-2 overflow-hidden rounded-md border-l-4 border-wa-green px-2.5 py-1.5",
+        isChip ? "bg-wa-surface" : "mb-1 bg-wa-quote",
       )}
     >
       <div className="min-w-0 flex-1 overflow-hidden">
-        <div
-          className={cn(
-            "truncate text-[11px] font-medium",
-            onPrimary ? "text-primary-foreground" : "text-primary",
-          )}
-        >
+        <div className="truncate text-[12.5px] font-semibold text-wa-green">
           {authorLabel}
         </div>
         {/* Wrap the preview instead of truncating to a single line.
@@ -57,7 +42,7 @@ export function ReplyQuote({
          *  layout wider, shoving the contact sidebar off-screen.
          *  `break-words` also wraps long URLs that have no whitespace
          *  to break on. Issue #165. */}
-        <div className="whitespace-pre-wrap break-words text-xs text-foreground/80">
+        <div className="line-clamp-3 whitespace-pre-wrap break-words text-[13px] text-wa-text-2">
           {preview}
         </div>
       </div>
@@ -66,9 +51,9 @@ export function ReplyQuote({
           type="button"
           onClick={onDismiss}
           aria-label={t("cancelReply")}
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-wa-icon hover:bg-wa-hover"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-4 w-4" />
         </button>
       )}
     </div>

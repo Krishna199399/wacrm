@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { usePresence } from "@/hooks/use-presence";
 import { PresenceDot } from "@/components/presence/presence-dot";
-import { presenceLabel } from "@/lib/presence";
+import { presenceLabel, type PresenceRow, type PresenceStatus } from "@/lib/presence";
 import { cn } from "@/lib/utils";
 import type {
   Conversation,
@@ -18,7 +18,7 @@ import type {
   InteractiveMessagePayload,
 } from "@/types";
 import {
-  MessageSquare,
+  MessageCircle,
   ChevronDown,
   UserPlus,
   Check,
@@ -27,10 +27,18 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  Phone,
+  Search,
+  MoreVertical,
+  X,
+  Pin,
+  PinOff,
 } from "lucide-react";
+import { useTyping } from "@/hooks/use-typing";
+import { useCan } from "@/hooks/use-can";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { useTranslations } from "next-intl";
-import { Badge } from "@/components/ui/badge";
+import { ContactAvatar } from "./contact-avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,7 +46,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageBubble } from "./message-bubble";
 import { MessageActions } from "./message-actions";
 import { MediaLightbox } from "./media-lightbox";
@@ -106,6 +113,8 @@ interface MessageThreadProps {
   contactPanelOpen?: boolean;
   onToggleContactPanel?: () => void;
   initialComposerText?: string;
+  /** Pin / unpin the whole chat (sorts to the top of the list). */
+  onPinChatChange?: (conversationId: string, pinnedAt: string | null) => void;
 }
 
 function formatDateSeparator(dateStr: string, t: ReturnType<typeof useTranslations>): string {
@@ -132,23 +141,20 @@ function groupMessagesByDate(messages: Message[]) {
   return groups;
 }
 
-const STATUS_OPTIONS: { label: string; value: ConversationStatus; color: string }[] = [
-  { label: "Open", value: "open", color: "text-primary" },
-  { label: "Pending", value: "pending", color: "text-amber-400" },
-  { label: "Closed", value: "closed", color: "text-muted-foreground" },
+const STATUS_OPTIONS: { label: string; value: ConversationStatus; dot: string }[] = [
+  { label: "Open", value: "open", dot: "bg-wa-green" },
+  { label: "Pending", value: "pending", dot: "bg-amber-500" },
+  { label: "Closed", value: "closed", dot: "bg-wa-text-2" },
 ];
 
-/**
- * WhatsApp-style doodle background applied to the chat area (both the
- * active thread and the empty state). The SVG tile lives at
- * `/public/inbox-doodle.svg`; the slate-950 colour sits underneath so
- * the doodles read as a subtle pattern rather than a stark grid.
- *
- * Defined once at module scope so the two render paths can't drift —
- * if we ever switch the asset, both spots update together.
- */
-const DOODLE_BG_CLASSES =
-  "bg-background bg-[url('/inbox-doodle.svg')] bg-repeat";
+const isOutbound = (m: Message) =>
+  m.sender_type === "agent" || m.sender_type === "bot";
+
+const HEADER_ICON_BUTTON =
+  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-wa-icon transition-colors hover:bg-wa-hover disabled:opacity-60";
+
+const HEADER_PILL =
+  "inline-flex h-8 items-center gap-1.5 rounded-full border border-wa-divider bg-wa-panel px-3 text-[13px] font-medium text-wa-text transition-colors hover:bg-wa-hover data-popup-open:bg-wa-hover";
 
 export function MessageThread({
   conversation,
@@ -165,12 +171,20 @@ export function MessageThread({
   contactPanelOpen,
   onToggleContactPanel,
   initialComposerText,
+  onPinChatChange,
 }: MessageThreadProps) {
   const t = useTranslations("Inbox.messageThread");
   const tTimer = useTranslations("Inbox.sessionTimer");
   const tQuote = useTranslations("Inbox.replyQuote");
 
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const canSend = useCan("send-messages");
+  // "Edit" = send a correction (the Cloud API can't edit a sent message).
+  const [correcting, setCorrecting] = useState<ReplyDraft | null>(null);
+  // Which pinned message the banner shows (cycles on click), and which
+  // row to flash after jumping to it.
+  const [pinIndex, setPinIndex] = useState(0);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
   const { getPresence, getRow, now } = usePresence();
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -200,6 +214,10 @@ export function MessageThread({
     }, 700);
   }, [isRefreshing, onRefresh]);
   const [replyTo, setReplyTo] = useState<ReplyDraft | null>(null);
+  // In-thread search (header magnifier). Filters the visible bubbles to
+  // the ones whose text contains the query; cleared on thread switch.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   // Which attachment the media viewer is showing. Lives here rather than in
   // the bubble so the viewer can page through every image/video in the
   // thread (issue #373). Paired with the conversation it belongs to and read
@@ -259,6 +277,13 @@ export function MessageThread({
 
     return { expired, remaining };
   }, [messages, tTimer]);
+
+  const { typers, notifyTyping } = useTyping({
+    conversationId: conversation?.id,
+    userId: user?.id,
+    userName: profile?.full_name || t("teammate"),
+    notifyCustomer: canSend && !sessionInfo.expired,
+  });
 
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause
@@ -434,6 +459,10 @@ export function MessageThread({
   // a quote pulled from conversation A shouldn't bleed into conversation B.
   useEffect(() => {
     setReplyTo(null);
+    setCorrecting(null);
+    setPinIndex(0);
+    setSearchOpen(false);
+    setSearchQuery("");
   }, [conversationId]);
 
   // Reset the server-side unread_count to 0 whenever an unread count
@@ -466,10 +495,13 @@ export function MessageThread({
   }, [messages]);
 
   const handleSend = useCallback(
-    async (text: string, replyToId?: string) => {
+    async (text: string, replyToId?: string, correctionOfId?: string) => {
       if (!conversation) return;
 
       const tempId = `temp-${Date.now()}`;
+      // A correction replies to the original so the customer sees which
+      // message it fixes (WhatsApp shows the quote on their phone).
+      const effectiveReplyTo = correctionOfId ?? replyToId;
 
       // Optimistic update — shows the message immediately with "sending" status
       const optimisticMsg: Message = {
@@ -480,10 +512,12 @@ export function MessageThread({
         content_text: text,
         status: "sending",
         created_at: new Date().toISOString(),
-        reply_to_message_id: replyToId,
+        reply_to_message_id: effectiveReplyTo,
+        correction_of_message_id: correctionOfId ?? null,
       };
       onNewMessage(optimisticMsg);
       setReplyTo(null);
+      setCorrecting(null);
 
       try {
         const res = await fetch("/api/whatsapp/send", {
@@ -493,7 +527,8 @@ export function MessageThread({
             conversation_id: conversation.id,
             message_type: "text",
             content_text: text,
-            reply_to_message_id: replyToId,
+            reply_to_message_id: effectiveReplyTo,
+            ...(correctionOfId ? { correction_of_message_id: correctionOfId } : {}),
           }),
         });
 
@@ -841,6 +876,104 @@ export function MessageThread({
     [conversation, user?.id],
   );
 
+  // Star / pin are CRM-only, shared with the team (migration 040). RLS
+  // lets agents update messages directly; realtime syncs teammates.
+  const updateMessageFlag = useCallback(
+    async (
+      msg: Message,
+      patch: Pick<Message, "starred_at" | "starred_by"> | Pick<Message, "pinned_at" | "pinned_by">,
+      errorKey: string,
+    ) => {
+      if (msg.id.startsWith("temp-")) return;
+      const previous = Object.fromEntries(
+        Object.keys(patch).map((k) => [k, msg[k as keyof Message] ?? null]),
+      ) as Partial<Message>;
+      onUpdateMessage(msg.id, patch);
+      const supabase = createClient();
+      const { error } = await supabase.from("messages").update(patch).eq("id", msg.id);
+      if (error) {
+        console.error("Failed to update message:", error);
+        onUpdateMessage(msg.id, previous);
+        toast.error(t(errorKey));
+      }
+    },
+    [onUpdateMessage, t],
+  );
+
+  const handleToggleStar = useCallback(
+    (msg: Message) =>
+      updateMessageFlag(
+        msg,
+        msg.starred_at
+          ? { starred_at: null, starred_by: null }
+          : { starred_at: new Date().toISOString(), starred_by: user?.id ?? null },
+        "starFailed",
+      ),
+    [updateMessageFlag, user?.id],
+  );
+
+  const handleTogglePin = useCallback(
+    (msg: Message) => {
+      setPinIndex(0);
+      return updateMessageFlag(
+        msg,
+        msg.pinned_at
+          ? { pinned_at: null, pinned_by: null }
+          : { pinned_at: new Date().toISOString(), pinned_by: user?.id ?? null },
+        "pinFailed",
+      );
+    },
+    [updateMessageFlag, user?.id],
+  );
+
+  const handleStartCorrection = useCallback(
+    (msg: Message) => {
+      setReplyTo(null);
+      setCorrecting({
+        id: msg.id,
+        authorLabel: t("editingMessage"),
+        preview: msg.content_text ?? "",
+      });
+    },
+    [t],
+  );
+
+  const handleTogglePinChat = useCallback(async () => {
+    if (!conversation || !onPinChatChange) return;
+    const next = conversation.pinned_at ? null : new Date().toISOString();
+    onPinChatChange(conversation.id, next);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("conversations")
+      .update({ pinned_at: next })
+      .eq("id", conversation.id);
+    if (error) {
+      console.error("Failed to pin chat:", error);
+      onPinChatChange(conversation.id, conversation.pinned_at ?? null);
+      toast.error(t("pinFailed"));
+    }
+  }, [conversation, onPinChatChange, t]);
+
+  // Pinned messages, newest pin first, for the banner under the header.
+  const pinnedMessages = useMemo(
+    () =>
+      messages
+        .filter((m) => m.pinned_at)
+        .sort((a, b) => (b.pinned_at ?? "").localeCompare(a.pinned_at ?? "")),
+    [messages],
+  );
+
+  const jumpToMessage = useCallback((id: string) => {
+    setSearchQuery("");
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`msg-${id}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    setHighlightId(id);
+    setTimeout(() => setHighlightId((cur) => (cur === id ? null : cur)), 1600);
+  }, []);
+
   const handleAssignChange = useCallback(
     async (agentId: string | null) => {
       if (!conversation) return;
@@ -862,19 +995,19 @@ export function MessageThread({
     [conversation, onAssignChange],
   );
 
-  // Empty state — same WhatsApp-style doodle background as the active
-  // thread below, so swapping between empty/selected doesn't change the
-  // pattern under the user's eye.
+  // Empty state — WhatsApp's "pick a chat" landing panel: soft
+  // background, a large icon, short copy, and the signature green bar
+  // along the bottom edge.
   if (!conversation || !contact) {
     return (
-      <div className={cn("flex flex-1 flex-col items-center justify-center", DOODLE_BG_CLASSES)}>
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-          <MessageSquare className="h-8 w-8 text-muted-foreground" />
+      <div className="flex flex-1 flex-col items-center justify-center border-b-[6px] border-wa-green bg-wa-panel-header px-6 text-center">
+        <div className="flex h-28 w-28 items-center justify-center rounded-full bg-wa-green-soft">
+          <MessageCircle className="h-14 w-14 text-wa-green" strokeWidth={1.6} />
         </div>
-        <h3 className="mt-4 text-sm font-medium text-muted-foreground">
+        <h3 className="mt-6 text-[28px] font-light text-wa-text">
           {t("selectConversation")}
         </h3>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-2 max-w-md text-sm leading-6 text-wa-text-2">
           {t("selectConversationHint")}
         </p>
       </div>
@@ -882,7 +1015,13 @@ export function MessageThread({
   }
 
   const displayName = contact.name || contact.phone;
-  const messageGroups = groupMessagesByDate(messages);
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const visibleMessages = normalizedQuery
+    ? messages.filter((m) =>
+        (m.content_text ?? "").toLowerCase().includes(normalizedQuery),
+      )
+    : messages;
+  const messageGroups = groupMessagesByDate(visibleMessages);
   const currentStatus = STATUS_OPTIONS.find(
     (s) => s.value === conversation.status
   );
@@ -901,114 +1040,87 @@ export function MessageThread({
     // clipped and the hover toolbar overlaps the Tags panel. Letting the
     // root shrink lets the bubbles' break-words / max-w caps apply.
     // Issue #257.
-    <div className={cn("flex h-full min-w-0 flex-1 flex-col overflow-hidden", DOODLE_BG_CLASSES)}>
-      {/* Header — solid card surface sits on top of the doodle so the
-          name/avatar/dropdowns stay legible. Includes safe-area top padding for iPhone notch/Dynamic Island. */}
-      <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] sm:px-4 sm:pt-3">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          {/* Back-to-list button — mobile only. Hidden on lg+ where the
-              conversation list is always visible next to the thread. */}
+    <div className="wa-wallpaper flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Header — opaque so the wallpaper never shows behind the name.
+          Safe-area top padding for the iPhone notch when the thread is
+          full-screen on mobile. */}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-wa-divider bg-wa-panel-header px-2 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] sm:px-4 lg:py-2.5">
+        <div className="flex min-w-0 items-center gap-1 sm:gap-3">
+          {/* Back-to-list button — mobile only. */}
           {onBack && (
             <button
               type="button"
               onClick={onBack}
               aria-label={t("backToConversations")}
-              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground lg:hidden"
+              className={cn(HEADER_ICON_BUTTON, "lg:hidden")}
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
           )}
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium text-foreground">
-            {displayName.charAt(0).toUpperCase()}
-          </div>
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
-            <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
-          </div>
-          {/* Session timer badge — hidden on the narrowest phones so
-              the name + back arrow keep their room. */}
-          <Badge
-            variant="outline"
-            className={cn(
-              "ml-1 hidden gap-1 border-border text-[10px] sm:inline-flex sm:ml-2",
-              sessionInfo.expired ? "text-red-400" : "text-primary"
-            )}
+          {/* Avatar + name. On desktop, clicking opens the contact
+              panel — WhatsApp's "contact info" gesture. */}
+          <button
+            type="button"
+            onClick={onToggleContactPanel}
+            disabled={!onToggleContactPanel}
+            title={onToggleContactPanel ? t("contactInfo") : undefined}
+            className="flex min-w-0 items-center gap-3 rounded-lg text-left disabled:cursor-default lg:cursor-pointer"
           >
-            <Clock className="h-3 w-3" />
-            {sessionInfo.remaining}
-          </Badge>
+            <ContactAvatar name={displayName} src={contact.avatar_url} size={42} />
+            <span className="min-w-0">
+              <span className="block truncate text-[16px] font-medium leading-tight text-wa-text">
+                {displayName}
+              </span>
+              {typers.length > 0 ? (
+                <span className="flex items-center gap-1 truncate text-[13px] leading-tight text-wa-green">
+                  <TypingDots />
+                  {typers.length === 1
+                    ? t("teammateTyping", { name: typers[0].name })
+                    : t("teammatesTyping", { count: typers.length })}
+                </span>
+              ) : (
+                <span className="block truncate text-[13px] leading-tight text-wa-text-2">
+                  {contact.name && contact.name !== contact.phone
+                    ? contact.phone
+                    : sessionInfo.remaining}
+                </span>
+              )}
+            </span>
+          </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Contact-panel toggle — desktop only. The contact sidebar
-              eats a chunk of horizontal width that crowds the thread on
-              smaller laptops; this lets agents reclaim it when they just
-              want to read and reply. Hidden on mobile, where the sidebar
-              never renders as a permanent panel anyway. Issue #258. */}
-          {onToggleContactPanel && (
-            <button
-              type="button"
-              onClick={onToggleContactPanel}
-              aria-label={
-                contactPanelOpen ? t("hideContactPanel") : t("showContactPanel")
-              }
-              title={contactPanelOpen ? t("hideContact") : t("showContact")}
-              aria-pressed={contactPanelOpen}
-              className={cn(
-                "hidden h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground lg:inline-flex",
-                contactPanelOpen ? "text-primary" : "text-muted-foreground",
-              )}
-            >
-              {contactPanelOpen ? (
-                <PanelRightClose className="h-4 w-4" />
-              ) : (
-                <PanelRightOpen className="h-4 w-4" />
-              )}
-            </button>
-          )}
-
-          {/* Manual refresh — forces a refetch of the messages + the
-              conversation list (the parent bumps its resyncToken). Useful
-              when realtime missed an event or the agent just wants to be
-              sure nothing's stale. Only rendered when the parent wires
-              up `onRefresh`. */}
-          {onRefresh && (
-            <button
-              type="button"
-              onClick={handleRefreshClick}
-              disabled={isRefreshing}
-              aria-label={t("refreshConversation")}
-              title={t("refresh")}
-              className={cn(
-                "inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-60",
-              )}
-            >
-              <RefreshCw
-                className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")}
-              />
-            </button>
-          )}
+        <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+          {/* 24h customer-service window. */}
+          <span
+            title={sessionInfo.remaining}
+            className={cn(
+              "hidden h-8 items-center gap-1 rounded-full px-2.5 text-xs font-medium xl:inline-flex",
+              sessionInfo.expired
+                ? "bg-red-500/10 text-red-600"
+                : "bg-wa-green-soft text-wa-text",
+            )}
+          >
+            <Clock className="h-3.5 w-3.5" />
+            {sessionInfo.remaining}
+          </span>
 
           {/* Status dropdown */}
           <DropdownMenu>
-            <DropdownMenuTrigger className={cn(
-                  "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                  currentStatus?.color ?? "text-muted-foreground"
-                )}>
-                {currentStatus ? t(`status${currentStatus.label}`) : t("status")}
-                <ChevronDown className="h-3 w-3" />
+            <DropdownMenuTrigger className={cn(HEADER_PILL, "hidden sm:inline-flex")}>
+              <span className={cn("h-2 w-2 rounded-full", currentStatus?.dot ?? "bg-wa-text-2")} />
+              {currentStatus ? t(`status${currentStatus.label}`) : t("status")}
+              <ChevronDown className="h-3.5 w-3.5 text-wa-text-2" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="border-border bg-popover"
-            >
+            <DropdownMenuContent align="end" className="border-border bg-popover">
               {STATUS_OPTIONS.map((opt) => (
                 <DropdownMenuItem
                   key={opt.value}
                   onClick={() => handleStatusChange(opt.value)}
-                  className={cn("text-sm", opt.color)}
+                  className="text-sm"
                 >
-                  {t(`status${opt.label}`)}
+                  <span className={cn("h-2 w-2 rounded-full", opt.dot)} />
+                  <span className="flex-1">{t(`status${opt.label}`)}</span>
+                  {opt.value === conversation.status && <Check className="h-3.5 w-3.5" />}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -1017,144 +1129,350 @@ export function MessageThread({
           {/* Assign dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger
-              className={cn(
-                "inline-flex items-center justify-center h-7 gap-1 px-2 text-xs rounded-md hover:bg-muted",
-                assignedAgentId ? "text-primary" : "text-muted-foreground"
-              )}
+              className={cn(HEADER_PILL, "hidden sm:inline-flex")}
+              title={assignLabel}
             >
-              <UserPlus className="h-3 w-3" />
-              <span className="hidden sm:inline">{assignLabel}</span>
-              <ChevronDown className="h-3 w-3" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="border-border bg-popover"
-            >
-              {profiles.length === 0 ? (
-                <DropdownMenuItem disabled className="text-sm text-muted-foreground">
-                  {t("noTeammates")}
-                </DropdownMenuItem>
+              {assignedAgentId ? (
+                <AgentAvatar
+                  name={currentAssignee?.full_name ?? assignLabel}
+                  src={currentAssignee?.avatar_url}
+                  status={getPresence(assignedAgentId)}
+                />
               ) : (
-                profiles.map((p) => {
-                  const isSelected = p.user_id === assignedAgentId;
-                  const presence = getPresence(p.user_id);
-                  return (
-                    <DropdownMenuItem
-                      key={p.id}
-                      onClick={() => handleAssignChange(p.user_id)}
-                      className={cn(
-                        "text-sm",
-                        isSelected ? "text-primary" : "text-popover-foreground"
-                      )}
-                    >
-                      <PresenceDot
-                        status={presence}
-                        label={presenceLabel(
-                          presence,
-                          getRow(p.user_id)?.last_seen_at ?? null,
-                          now
-                        )}
-                        className="mr-2"
-                      />
-                      <span className="flex-1">
-                        {p.full_name}
-                        {p.user_id === user?.id ? t("me") : ""}
-                      </span>
-                      {isSelected && <Check className="ml-2 h-3 w-3" />}
-                    </DropdownMenuItem>
-                  );
-                })
+                <UserPlus className="h-3.5 w-3.5 text-wa-icon" />
               )}
-              {assignedAgentId && (
-                <>
-                  <DropdownMenuSeparator className="bg-border" />
+              <span className="hidden max-w-28 truncate 2xl:inline">{assignLabel}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-wa-text-2" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="border-border bg-popover">
+              <AssigneeItems
+                profiles={profiles}
+                assignedAgentId={assignedAgentId}
+                currentUserId={user?.id}
+                meSuffix={t("me")}
+                noTeammatesLabel={t("noTeammates")}
+                unassignLabel={t("unassign")}
+                getPresence={getPresence}
+                getRow={getRow}
+                now={now}
+                onAssign={handleAssignChange}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <span className="mx-1 hidden h-6 w-px bg-wa-divider sm:block" />
+
+          {contact.phone && (
+            <a
+              href={`tel:${contact.phone}`}
+              aria-label={t("call")}
+              title={t("call")}
+              className={HEADER_ICON_BUTTON}
+            >
+              <Phone className="h-5 w-5" />
+            </a>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen((open) => !open);
+              setSearchQuery("");
+            }}
+            aria-label={t("searchMessages")}
+            title={t("searchMessages")}
+            aria-pressed={searchOpen}
+            className={cn(HEADER_ICON_BUTTON, searchOpen && "bg-wa-hover")}
+          >
+            <Search className="h-5 w-5" />
+          </button>
+
+          {/* Overflow menu: contact panel toggle (desktop), refresh, and
+              on phones the status/assign controls that don't fit. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              aria-label={t("moreOptions")}
+              title={t("moreOptions")}
+              className={cn(HEADER_ICON_BUTTON, "data-popup-open:bg-wa-hover")}
+            >
+              <MoreVertical className="h-5 w-5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-52 border-border bg-popover">
+              {onToggleContactPanel && (
+                <DropdownMenuItem
+                  onClick={onToggleContactPanel}
+                  className="hidden text-sm lg:flex"
+                >
+                  {contactPanelOpen ? (
+                    <PanelRightClose className="h-4 w-4" />
+                  ) : (
+                    <PanelRightOpen className="h-4 w-4" />
+                  )}
+                  {contactPanelOpen ? t("hideContact") : t("contactInfo")}
+                </DropdownMenuItem>
+              )}
+              {onPinChatChange && canSend && (
+                <DropdownMenuItem onClick={() => void handleTogglePinChat()} className="text-sm">
+                  {conversation.pinned_at ? (
+                    <PinOff className="h-4 w-4" />
+                  ) : (
+                    <Pin className="h-4 w-4" />
+                  )}
+                  {conversation.pinned_at ? t("unpinChat") : t("pinChat")}
+                </DropdownMenuItem>
+              )}
+              {onRefresh && (
+                <DropdownMenuItem
+                  onClick={handleRefreshClick}
+                  disabled={isRefreshing}
+                  className="text-sm"
+                >
+                  <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+                  {t("refreshConversation")}
+                </DropdownMenuItem>
+              )}
+              {/* Phones: status + assignment live here. */}
+              <div className="sm:hidden">
+                <DropdownMenuSeparator className="bg-border" />
+                <p className="px-2 py-1 text-xs text-muted-foreground">
+                  {sessionInfo.remaining}
+                </p>
+                {STATUS_OPTIONS.map((opt) => (
                   <DropdownMenuItem
-                    onClick={() => handleAssignChange(null)}
-                    className="text-sm text-muted-foreground"
+                    key={opt.value}
+                    onClick={() => handleStatusChange(opt.value)}
+                    className="text-sm"
                   >
-                    {t("unassign")}
+                    <span className={cn("h-2 w-2 rounded-full", opt.dot)} />
+                    <span className="flex-1">{t(`status${opt.label}`)}</span>
+                    {opt.value === conversation.status && <Check className="h-3.5 w-3.5" />}
                   </DropdownMenuItem>
-                </>
-              )}
+                ))}
+                <DropdownMenuSeparator className="bg-border" />
+                <AssigneeItems
+                  profiles={profiles}
+                  assignedAgentId={assignedAgentId}
+                  currentUserId={user?.id}
+                  meSuffix={t("me")}
+                  noTeammatesLabel={t("noTeammates")}
+                  unassignLabel={t("unassign")}
+                  getPresence={getPresence}
+                  getRow={getRow}
+                  now={now}
+                  onAssign={handleAssignChange}
+                />
+              </div>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
+      {/* In-thread search bar */}
+      {searchOpen && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-wa-divider bg-wa-panel px-3 py-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-wa-text-2" />
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setSearchOpen(false);
+                  setSearchQuery("");
+                }
+              }}
+              placeholder={t("searchMessages")}
+              aria-label={t("searchMessages")}
+              className="h-9 w-full rounded-lg bg-wa-surface pl-9 pr-3 text-sm text-wa-text outline-none placeholder:text-wa-text-2 focus:ring-2 focus:ring-wa-green/50"
+            />
+          </div>
+          {normalizedQuery && (
+            <span className="shrink-0 text-xs text-wa-text-2">
+              {t("searchResults", { count: visibleMessages.length })}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen(false);
+              setSearchQuery("");
+            }}
+            aria-label={t("closeSearch")}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-wa-icon hover:bg-wa-hover"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Pinned-message banner — newest pin first; clicking jumps to it
+          and advances to the next pin, like WhatsApp. */}
+      {pinnedMessages.length > 0 && (() => {
+        const pinned = pinnedMessages[pinIndex % pinnedMessages.length];
+        return (
+          <div className="flex shrink-0 items-center gap-2 border-b border-wa-divider bg-wa-panel px-3 py-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                jumpToMessage(pinned.id);
+                setPinIndex((i) => (i + 1) % pinnedMessages.length);
+              }}
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-1 text-left hover:bg-wa-hover"
+            >
+              {pinnedMessages.length > 1 && (
+                <span className="flex h-7 flex-col justify-center gap-0.5" aria-hidden="true">
+                  {pinnedMessages.slice(0, 3).map((m, i) => (
+                    <span
+                      key={m.id}
+                      className={cn(
+                        "h-2 w-[3px] rounded-full",
+                        i === pinIndex % pinnedMessages.length ? "bg-wa-green" : "bg-wa-divider",
+                      )}
+                    />
+                  ))}
+                </span>
+              )}
+              <Pin className="h-4 w-4 shrink-0 rotate-45 text-wa-icon" />
+              <span className="min-w-0 flex-1 truncate text-sm text-wa-text">
+                {buildReplyPreview(pinned, tQuote)}
+              </span>
+              {pinnedMessages.length > 1 && (
+                <span className="shrink-0 text-xs text-wa-text-2">
+                  {t("pinnedCount", {
+                    index: (pinIndex % pinnedMessages.length) + 1,
+                    count: pinnedMessages.length,
+                  })}
+                </span>
+              )}
+            </button>
+            {canSend && (
+              <button
+                type="button"
+                onClick={() => void handleTogglePin(pinned)}
+                aria-label={t("unpinMessage")}
+                title={t("unpinMessage")}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-wa-icon hover:bg-wa-hover"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Messages Area */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
+      <div
+        ref={scrollRef}
+        className="wa-scroll flex-1 overflow-y-auto px-3 pb-4 sm:px-[5%] xl:px-[7%]"
+      >
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-wa-green border-t-transparent" />
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12">
-            <p className="text-sm text-muted-foreground">{t("noMessagesYet")}</p>
-            <p className="text-xs text-muted-foreground">
-              {t("sendTemplateHint")}
-            </p>
+          <div className="flex justify-center py-10">
+            <div className="max-w-sm rounded-lg bg-wa-chip px-4 py-3 text-center shadow-sm">
+              <p className="text-sm font-medium text-wa-text">{t("noMessagesYet")}</p>
+              <p className="mt-0.5 text-xs text-wa-chip-fg">{t("sendTemplateHint")}</p>
+            </div>
+          </div>
+        ) : visibleMessages.length === 0 ? (
+          <div className="flex justify-center py-10">
+            <span className="rounded-lg bg-wa-chip px-4 py-2 text-sm text-wa-chip-fg shadow-sm">
+              {t("searchNoResults")}
+            </span>
           </div>
         ) : (
-          <div className="space-y-4">
-            {messageGroups.map((group) => (
-              <div key={group.date}>
-                {/* Date separator */}
-                <div className="mb-4 flex items-center justify-center">
-                  <span className="rounded-full bg-muted px-3 py-1 text-[10px] font-medium text-muted-foreground">
-                    {formatDateSeparator(group.date, t)}
-                  </span>
-                </div>
-                {/* Messages */}
-                <div className="space-y-2">
-                  {group.messages.map((msg) => {
-                    const parent = msg.reply_to_message_id
-                      ? messagesById.get(msg.reply_to_message_id)
-                      : null;
-                    const reply = parent
-                      ? {
-                          authorLabel:
-                            parent.sender_type === "agent" || parent.sender_type === "bot"
-                              ? t("me") 
-                              : contact?.name || contact?.phone || "Unknown",
-                          preview: buildReplyPreview(parent, tQuote),
-                        }
-                      : null;
-                    const msgReactions = reactionsByMessageId.get(msg.id);
-                    // Toggle is computed at the call site — `msgReactions`
-                    // and `user?.id` are already in scope, no extra hook.
-                    const handlePillToggle = (emoji: string) => {
-                      const own = msgReactions?.find(
-                        (r) =>
-                          r.actor_type === "agent" &&
-                          r.actor_id === user?.id,
-                      );
-                      const next = own?.emoji === emoji ? "" : emoji;
-                      void postReaction(msg.id, next);
-                    };
-                    return (
-                      <MessageActions
-                        key={msg.id}
-                        message={msg}
-                        onReply={() => handleStartReply(msg)}
-                        onReact={(emoji) => {
-                          if (emoji) void postReaction(msg.id, emoji);
-                        }}
-                      >
-                        <MessageBubble
-                          message={msg}
-                          reply={reply}
-                          reactions={msgReactions}
-                          currentUserId={user?.id}
-                          onToggleReaction={handlePillToggle}
-                          onOpenMedia={handleMediaChange}
-                        />
-                      </MessageActions>
-                    );
-                  })}
-                </div>
+          messageGroups.map((group) => (
+            <section key={group.date} className="pb-1">
+              {/* Date chip — sticky, like WhatsApp, so the day stays
+                  visible while scrolling through it. */}
+              <div className="sticky top-0 z-10 flex justify-center pb-2 pt-3">
+                <span className="rounded-lg bg-wa-chip px-3 py-1.5 text-[12.5px] font-medium text-wa-chip-fg shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]">
+                  {formatDateSeparator(group.date, t)}
+                </span>
               </div>
-            ))}
-          </div>
+              {group.messages.map((msg, index) => {
+                const prev = index > 0 ? group.messages[index - 1] : null;
+                // A "run" is consecutive bubbles from the same side; only
+                // its first bubble gets a tail and the larger top gap.
+                const startsRun = !prev || isOutbound(prev) !== isOutbound(msg);
+                const parent = msg.reply_to_message_id
+                  ? messagesById.get(msg.reply_to_message_id)
+                  : null;
+                const reply = parent
+                  ? {
+                      authorLabel: isOutbound(parent)
+                        ? t("you")
+                        : contact?.name || contact?.phone || "Unknown",
+                      preview: buildReplyPreview(parent, tQuote),
+                    }
+                  : null;
+                const msgReactions = reactionsByMessageId.get(msg.id);
+                // Toggle is computed at the call site — `msgReactions`
+                // and `user?.id` are already in scope, no extra hook.
+                const handlePillToggle = (emoji: string) => {
+                  const own = msgReactions?.find(
+                    (r) =>
+                      r.actor_type === "agent" &&
+                      r.actor_id === user?.id,
+                  );
+                  const next = own?.emoji === emoji ? "" : emoji;
+                  void postReaction(msg.id, next);
+                };
+                return (
+                  <div
+                    key={msg.id}
+                    id={`msg-${msg.id}`}
+                    className={cn(
+                      startsRun ? "mt-3" : "mt-0.5",
+                      "-mx-2 rounded-lg px-4 transition-colors duration-700",
+                      highlightId === msg.id && "bg-wa-green/15",
+                    )}
+                  >
+                    <MessageActions
+                      message={msg}
+                      onReply={() => handleStartReply(msg)}
+                      onReact={(emoji) => {
+                        if (emoji) void postReaction(msg.id, emoji);
+                      }}
+                      onToggleStar={
+                        canSend && !msg.id.startsWith("temp-")
+                          ? () => void handleToggleStar(msg)
+                          : undefined
+                      }
+                      onTogglePin={
+                        canSend && !msg.id.startsWith("temp-")
+                          ? () => void handleTogglePin(msg)
+                          : undefined
+                      }
+                      onEdit={
+                        canSend &&
+                        !sessionInfo.expired &&
+                        isOutbound(msg) &&
+                        msg.content_type === "text" &&
+                        !!msg.message_id &&
+                        msg.status !== "failed"
+                          ? () => handleStartCorrection(msg)
+                          : undefined
+                      }
+                    >
+                      <MessageBubble
+                        message={msg}
+                        reply={reply}
+                        reactions={msgReactions}
+                        currentUserId={user?.id}
+                        onToggleReaction={handlePillToggle}
+                        onOpenMedia={handleMediaChange}
+                        showTail={startsRun}
+                      />
+                    </MessageActions>
+                  </div>
+                );
+              })}
+            </section>
+          ))
         )}
       </div>
 
@@ -1179,6 +1497,16 @@ export function MessageThread({
         conversationId={conversation.id}
         sessionExpired={sessionInfo.expired}
         onSend={handleSend}
+        onTyping={notifyTyping}
+        correcting={correcting}
+        onCancelCorrection={() => setCorrecting(null)}
+        typingNotice={
+          typers.length === 1
+            ? t("teammateReplying", { name: typers[0].name })
+            : typers.length > 1
+              ? t("teammatesTyping", { count: typers.length })
+              : null
+        }
         onSendMedia={handleSendMedia}
         onSendInteractive={handleSendInteractive}
         onOpenTemplates={handleOpenTemplates}
@@ -1202,5 +1530,120 @@ export function MessageThread({
         contactLabel={contactDisplayName}
       />
     </div>
+  );
+}
+
+/**
+ * Teammate rows for the assign menu. Shared by the desktop "Assign"
+ * pill and the phone overflow menu so the two can't drift.
+ */
+function AssigneeItems({
+  profiles,
+  assignedAgentId,
+  currentUserId,
+  meSuffix,
+  noTeammatesLabel,
+  unassignLabel,
+  getPresence,
+  getRow,
+  now,
+  onAssign,
+}: {
+  profiles: Profile[];
+  assignedAgentId: string | null;
+  currentUserId?: string;
+  meSuffix: string;
+  noTeammatesLabel: string;
+  unassignLabel: string;
+  getPresence: (userId: string) => PresenceStatus;
+  getRow: (userId: string) => PresenceRow | undefined;
+  now: number;
+  onAssign: (agentId: string | null) => void;
+}) {
+  if (profiles.length === 0) {
+    return (
+      <DropdownMenuItem disabled className="text-sm text-muted-foreground">
+        {noTeammatesLabel}
+      </DropdownMenuItem>
+    );
+  }
+  return (
+    <>
+      {profiles.map((p) => {
+        const isSelected = p.user_id === assignedAgentId;
+        const presence = getPresence(p.user_id);
+        return (
+          <DropdownMenuItem
+            key={p.id}
+            onClick={() => onAssign(p.user_id)}
+            className={cn("text-sm", isSelected ? "text-primary" : "text-popover-foreground")}
+          >
+            <PresenceDot
+              status={presence}
+              label={presenceLabel(presence, getRow(p.user_id)?.last_seen_at ?? null, now)}
+              className="mr-2"
+            />
+            <span className="flex-1">
+              {p.full_name}
+              {p.user_id === currentUserId ? meSuffix : ""}
+            </span>
+            {isSelected && <Check className="ml-2 h-3 w-3" />}
+          </DropdownMenuItem>
+        );
+      })}
+      {assignedAgentId && (
+        <>
+          <DropdownMenuSeparator className="bg-border" />
+          <DropdownMenuItem
+            onClick={() => onAssign(null)}
+            className="text-sm text-muted-foreground"
+          >
+            {unassignLabel}
+          </DropdownMenuItem>
+        </>
+      )}
+    </>
+  );
+}
+
+/** Three bouncing dots, WhatsApp's "typing…" animation. */
+function TypingDots() {
+  return (
+    <span className="inline-flex items-end gap-[2px] pb-[2px]" aria-hidden="true">
+      {[0, 150, 300].map((delay) => (
+        <span
+          key={delay}
+          className="h-1 w-1 animate-bounce rounded-full bg-current"
+          style={{ animationDelay: `${delay}ms`, animationDuration: "1s" }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** Small teammate avatar with a presence dot (green = online). */
+function AgentAvatar({
+  name,
+  src,
+  status,
+}: {
+  name: string;
+  src?: string | null;
+  status: PresenceStatus;
+}) {
+  return (
+    <span className="relative inline-flex">
+      <ContactAvatar name={name} src={src} size={20} />
+      <span
+        className={cn(
+          "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-wa-panel",
+          status === "online"
+            ? "bg-wa-green"
+            : status === "away"
+              ? "bg-amber-400"
+              : "bg-wa-text-2/50",
+        )}
+      />
+    </span>
   );
 }

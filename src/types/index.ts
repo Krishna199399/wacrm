@@ -181,6 +181,8 @@ export interface Conversation {
   ai_autoreply_disabled?: boolean;
   ai_reply_count?: number;
   ai_handoff_summary?: string | null;
+  /** Pinned chats sort to the top of the inbox (shared). Migration 040. */
+  pinned_at?: string | null;
 }
 
 // ============================================================
@@ -258,6 +260,22 @@ export interface Message {
    * badge in the inbox. Migration 033.
    */
   ai_generated?: boolean;
+  /** Inbound only: Meta's `context.forwarded` flag. Migration 040. */
+  is_forwarded?: boolean;
+  /** Inbound only: forwarded more than five times. Migration 040. */
+  is_frequently_forwarded?: boolean;
+  /** Set when a teammate starred the message (shared). Migration 040. */
+  starred_at?: string | null;
+  starred_by?: string | null;
+  /** Set when the message is pinned in its chat (shared). Migration 040. */
+  pinned_at?: string | null;
+  pinned_by?: string | null;
+  /**
+   * The Cloud API can't edit a sent message, so "Edit" sends a new one
+   * replying to the original; this points at the message it corrects.
+   * Migration 040.
+   */
+  correction_of_message_id?: string | null;
 }
 
 export type ReactionActor = 'customer' | 'agent';

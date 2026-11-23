@@ -703,6 +703,41 @@ export async function sendReactionMessage(
   return { messageId: data.messages[0].id }
 }
 
+export interface SendTypingIndicatorArgs {
+  phoneNumberId: string
+  accessToken: string
+  /** Meta wamid of the customer's latest inbound message. */
+  inboundMessageId: string
+}
+
+/**
+ * Show "typing…" to the customer. Meta couples this to a read receipt:
+ * the inbound message (and everything before it) is marked read, and
+ * the indicator clears after 25 s or when we send a message.
+ * https://developers.facebook.com/documentation/business-messaging/whatsapp/typing-indicators/
+ */
+export async function sendTypingIndicator(
+  args: SendTypingIndicatorArgs
+): Promise<void> {
+  const { phoneNumberId, accessToken, inboundMessageId } = args
+  const response = await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      status: 'read',
+      message_id: inboundMessageId,
+      typing_indicator: { type: 'text' },
+    }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+}
+
 // ============================================================
 // Interactive (button replies + list messages)
 // ============================================================

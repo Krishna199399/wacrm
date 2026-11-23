@@ -560,6 +560,50 @@ function InboxPageInner() {
   ]);
 
 
+  // "Search or start a new chat": typing a phone number that matches no
+  // conversation offers to open one. Same find-or-create endpoint the
+  // ?phone= deep link uses, so contact dedupe rules stay in one place.
+  const handleStartChat = useCallback(
+    async (phone: string): Promise<boolean> => {
+      try {
+        const res = await fetch("/api/inbox/resolve-phone", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phone }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success || !data.conversationId) {
+          toast.error(data?.error || t("startChatFailed"));
+          return false;
+        }
+        const fetched = await hydrateConversation(data.conversationId);
+        if (fetched) {
+          handleSelectConversation(fetched);
+          return true;
+        }
+        return false;
+      } catch (err) {
+        console.error("Failed to start chat:", err);
+        toast.error(t("startChatFailed"));
+        return false;
+      }
+    },
+    [hydrateConversation, handleSelectConversation, t],
+  );
+
+  // Pinned chats sort to the top of the list (shared, migration 040).
+  const handlePinChatChange = useCallback(
+    (conversationId: string, pinnedAt: string | null) => {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === conversationId ? { ...c, pinned_at: pinnedAt } : c)),
+      );
+      setActiveConversation((prev) =>
+        prev?.id === conversationId ? { ...prev, pinned_at: pinnedAt } : prev,
+      );
+    },
+    [],
+  );
+
   const handleMessagesLoaded = useCallback((loaded: Message[]) => {
     setMessages(loaded);
   }, []);
@@ -630,9 +674,9 @@ function InboxPageInner() {
       {/* WhatsApp connection banner — in the flex column, not absolute,
           so it pushes the panels down instead of overlapping them. */}
       {whatsappConnected === false && (
-        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2">
-          <WifiOff className="h-4 w-4 text-amber-400" />
-          <p className="text-xs text-amber-400">
+        <div className="flex shrink-0 items-center justify-center gap-2 border-b border-amber-500/30 bg-amber-100 px-4 py-2 dark:bg-amber-500/10">
+          <WifiOff className="h-4 w-4 text-amber-700" />
+          <p className="text-xs font-medium text-amber-800">
             {t("whatsappNotConnected")}
           </p>
         </div>
@@ -644,7 +688,7 @@ function InboxPageInner() {
             thread can occupy the full width. Always visible on lg+. */}
         <div
           className={cn(
-            "flex h-full w-full min-w-0 flex-1 overflow-hidden lg:flex-none lg:w-80",
+            "flex h-full w-full min-w-0 flex-1 overflow-hidden lg:w-[360px] lg:flex-none xl:w-[420px]",
             hasActiveConv ? "hidden lg:flex" : "flex",
           )}
         >
@@ -654,6 +698,7 @@ function InboxPageInner() {
             conversations={conversations}
             onConversationsLoaded={handleConversationsLoaded}
             resyncToken={resyncToken}
+            onStartChat={handleStartChat}
           />
         </div>
 
@@ -688,6 +733,7 @@ function InboxPageInner() {
             contactPanelOpen={contactPanelOpen}
             onToggleContactPanel={handleToggleContactPanel}
             initialComposerText={prefilledComposerText}
+            onPinChatChange={handlePinChatChange}
           />
         </div>
 
@@ -697,7 +743,10 @@ function InboxPageInner() {
             toggle — which is itself desktop-only — never affects it. */}
         {contactPanelOpen && (
           <div className="hidden lg:block">
-            <ContactSidebar contact={activeContact} />
+            <ContactSidebar
+              contact={activeContact}
+              onClose={handleToggleContactPanel}
+            />
           </div>
         )}
       </div>
