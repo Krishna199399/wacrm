@@ -133,6 +133,62 @@ export function entryTriggerTexts(message: ParsedInbound): string[] {
   );
 }
 
+// ============================================================
+// Handoff quiet period
+//
+// A `handoff` node (or an exhausted fallback) ends the run and flips
+// the conversation to `pending` so a person can take over. Without a
+// guard, the customer's very next message — "this is the photo", "ok",
+// anything containing a trigger keyword — started a fresh run and the
+// bot talked over the agent.
+//
+// While the conversation is still `pending` AND the contact's most
+// recent run ended in a handoff less than HANDOFF_QUIET_HOURS ago, no
+// new run is started. The bot comes back when:
+//   - an agent sets the conversation to Open or Closed (a closed one is
+//     re-opened by the next inbound), or
+//   - HANDOFF_QUIET_HOURS pass (the agent forgot to change the status), or
+//   - the customer explicitly types a resume word ("menu"), or taps a
+//     bot button — both are unambiguously aimed at the bot.
+// A conversation set to `pending` by hand, with no recent bot handoff,
+// is unaffected.
+// ============================================================
+
+/** How long the bot stays quiet after handing a conversation to a person. */
+export const HANDOFF_QUIET_HOURS = 12;
+
+/** Typed words that bring the bot back during a handoff quiet period. */
+export const HANDOFF_RESUME_WORDS: readonly string[] = ["menu"];
+
+/** True when the customer explicitly asks for the bot back ("menu", "Menu!", " MENU "). */
+export function isHandoffResumeCommand(message: ParsedInbound): boolean {
+  if (message.kind !== "text") return false;
+  const normalized = message.text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, "")
+    .trim();
+  return HANDOFF_RESUME_WORDS.includes(normalized);
+}
+
+/**
+ * Pure predicate: is this conversation inside a handoff quiet period?
+ * Exported for unit tests; the engine wraps it with the DB lookups.
+ */
+export function isInHandoffQuietPeriod(args: {
+  conversationStatus: string | null | undefined;
+  /** `ended_at` of the contact's most recent run that ended in a handoff. */
+  lastHandoffAt: string | null | undefined;
+  now: Date;
+  quietHours?: number;
+}): boolean {
+  if (args.conversationStatus !== "pending") return false;
+  if (!args.lastHandoffAt) return false;
+  const handoffMs = new Date(args.lastHandoffAt).getTime();
+  if (Number.isNaN(handoffMs)) return false;
+  const quietMs = (args.quietHours ?? HANDOFF_QUIET_HOURS) * 60 * 60 * 1000;
+  return args.now.getTime() - handoffMs < quietMs;
+}
+
 /** Nodes that advance to a next_node_key without waiting for input. */
 export function isAutoAdvancing(node_type: string): boolean {
   return (
@@ -330,6 +386,45 @@ async function isDuplicateInbound(
     .eq("event_type", "reply_received")
     .filter("payload->>meta_message_id", "eq", metaMessageId);
   return (count ?? 0) > 0;
+}
+
+/**
+ * DB wrapper around `isInHandoffQuietPeriod`. Fails OPEN: on any lookup
+ * error the bot behaves as before (replies) rather than going silent.
+ */
+async function isContactInHandoffQuietPeriod(
+  db: AdminClient,
+  accountId: string,
+  contactId: string,
+  conversationId: string,
+): Promise<boolean> {
+  const { data: conversation, error: convErr } = await db
+    .from("conversations")
+    .select("status")
+    .eq("id", conversationId)
+    .maybeSingle();
+  if (convErr || !conversation) return false;
+  const conversationStatus = (conversation as { status?: string }).status;
+  // Cheap exit for the common case — skip the second query.
+  if (conversationStatus !== "pending") return false;
+
+  const { data: runs, error: runErr } = await db
+    .from("flow_runs")
+    .select("ended_at")
+    .eq("account_id", accountId)
+    .eq("contact_id", contactId)
+    .eq("status", "handed_off")
+    .order("ended_at", { ascending: false })
+    .limit(1);
+  if (runErr) return false;
+  const lastHandoffAt =
+    ((runs as { ended_at: string | null }[] | null) ?? [])[0]?.ended_at ?? null;
+
+  return isInHandoffQuietPeriod({
+    conversationStatus,
+    lastHandoffAt,
+    now: new Date(),
+  });
 }
 
 async function findEntryFlow(
@@ -896,6 +991,22 @@ export async function dispatchInboundToFlows(
       // in-memory. See loadAllNodes.
       const nodes = await loadAllNodes(db, activeRun.flow_id);
       return handleReplyForActiveRun(db, activeRun, input.message, nodes);
+    }
+
+    // A person is handling this chat after a recent bot handoff — don't
+    // start a new run over them. Typed text only: a button tap or a
+    // resume word ("menu") is the customer explicitly asking for the bot.
+    if (
+      input.message.kind === "text" &&
+      !isHandoffResumeCommand(input.message) &&
+      (await isContactInHandoffQuietPeriod(
+        db,
+        input.accountId,
+        input.contactId,
+        input.conversationId,
+      ))
+    ) {
+      return { consumed: false, outcome: "handoff_quiet" };
     }
 
     // No active run → look for a flow whose entry trigger matches.

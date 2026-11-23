@@ -358,6 +358,9 @@ export interface DispatchInboundResult {
     | "handed_off"
     | "fallback_fired"
     | "duplicate_inbound_ignored"
+    /** A team member is handling the chat after a recent bot handoff,
+     *  so no flow was started. See `isInHandoffQuietPeriod`. */
+    | "handoff_quiet"
     | "no_match";
 }
 

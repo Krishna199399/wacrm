@@ -13,6 +13,10 @@ const h = vi.hoisted(() => ({
   state: {
     /** Rows loadActiveRunForContact sees. Empty = no run in progress. */
     activeRuns: [] as unknown[],
+    /** Rows the handoff-quiet lookup sees (flow_runs WHERE status='handed_off'). */
+    handedOffRuns: [] as unknown[],
+    /** Rows the conversation-status lookup sees. */
+    conversations: [] as unknown[],
     flows: [] as unknown[],
     nodes: [] as unknown[],
     inserted: [] as { table: string; row: Record<string, unknown> }[],
@@ -23,17 +27,24 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("./admin-client", () => {
-  function rows(table: string): unknown[] {
-    if (table === "flow_runs") return h.state.activeRuns;
+  function rows(table: string, filters: Record<string, unknown> = {}): unknown[] {
+    if (table === "flow_runs") {
+      return filters.status === "handed_off" ? h.state.handedOffRuns : h.state.activeRuns;
+    }
+    if (table === "conversations") return h.state.conversations;
     if (table === "flows") return h.state.flows;
     if (table === "flow_nodes") return h.state.nodes;
     return [];
   }
 
   function builder(table: string) {
+    const filters: Record<string, unknown> = {};
     const b: Record<string, unknown> = {
       select: () => b,
-      eq: () => b,
+      eq: (col: string, val: unknown) => {
+        filters[col] = val;
+        return b;
+      },
       in: () => b,
       filter: () => b,
       order: () => b,
@@ -55,17 +66,17 @@ vi.mock("./admin-client", () => {
       // loadFlow's flows lookup.
       maybeSingle: async () => ({
         data:
-          table === "flow_runs" ? h.state.insertedRun : (rows(table)[0] ?? null),
+          table === "flow_runs" ? h.state.insertedRun : (rows(table, filters)[0] ?? null),
         error: null,
       }),
-      single: async () => ({ data: rows(table)[0] ?? null, error: null }),
+      single: async () => ({ data: rows(table, filters)[0] ?? null, error: null }),
       then: (
         resolve: (r: {
           data: unknown[];
           error: null;
           count: number;
         }) => unknown,
-      ) => resolve({ data: rows(table), error: null, count: 0 }),
+      ) => resolve({ data: rows(table, filters), error: null, count: 0 }),
     };
     return b;
   }
@@ -152,6 +163,8 @@ function startedRuns() {
 beforeEach(() => {
   // No run in progress — the whole point is the entry-trigger path.
   h.state.activeRuns = [];
+  h.state.handedOffRuns = [];
+  h.state.conversations = [];
   h.state.flows = [];
   h.state.nodes = NODES;
   h.state.inserted = [];
@@ -314,6 +327,82 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
     // treated it that way.
     expect(result.consumed).toBe(true);
     expect(result.flow_run_id).toBe("run-1");
+    expect(startedRuns()).toHaveLength(1);
+  });
+});
+
+describe("dispatchInboundToFlows — handoff quiet period", () => {
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+  const text = (t: string): ParsedInbound => ({ kind: "text", text: t, meta_message_id: "m1" });
+
+  beforeEach(() => {
+    h.state.flows = [KEYWORD_FLOW];
+  });
+
+  it("does not start a flow while a person is handling the chat", async () => {
+    h.state.conversations = [{ status: "pending" }];
+    h.state.handedOffRuns = [{ ended_at: minutesAgo(30) }];
+
+    const result = await dispatch(text("order status please"));
+
+    expect(result).toEqual({ consumed: false, outcome: "handoff_quiet" });
+    expect(startedRuns()).toEqual([]);
+    expect(engineSendText).not.toHaveBeenCalled();
+  });
+
+  it("starts flows again once the agent sets the chat back to open", async () => {
+    h.state.conversations = [{ status: "open" }];
+    h.state.handedOffRuns = [{ ended_at: minutesAgo(30) }];
+
+    const result = await dispatch(text("order status please"));
+
+    expect(result.consumed).toBe(true);
+    expect(startedRuns()).toHaveLength(1);
+  });
+
+  it("starts flows again after the quiet period runs out", async () => {
+    h.state.conversations = [{ status: "pending" }];
+    h.state.handedOffRuns = [{ ended_at: minutesAgo(13 * 60) }];
+
+    const result = await dispatch(text("order status please"));
+
+    expect(result.consumed).toBe(true);
+    expect(startedRuns()).toHaveLength(1);
+  });
+
+  it("lets the customer bring the bot back by typing 'menu'", async () => {
+    h.state.flows = [{ ...KEYWORD_FLOW, trigger_config: { keywords: ["menu"] } }];
+    h.state.conversations = [{ status: "pending" }];
+    h.state.handedOffRuns = [{ ended_at: minutesAgo(30) }];
+
+    const result = await dispatch(text("Menu"));
+
+    expect(result.consumed).toBe(true);
+    expect(startedRuns()).toHaveLength(1);
+  });
+
+  it("lets a bot button tap through during the quiet period", async () => {
+    h.state.conversations = [{ status: "pending" }];
+    h.state.handedOffRuns = [{ ended_at: minutesAgo(30) }];
+
+    const result = await dispatch({
+      kind: "interactive_reply",
+      reply_id: "btn_1",
+      reply_title: "Order status",
+      meta_message_id: "m1",
+    });
+
+    expect(result.consumed).toBe(true);
+    expect(startedRuns()).toHaveLength(1);
+  });
+
+  it("ignores a manually-pending chat that never had a bot handoff", async () => {
+    h.state.conversations = [{ status: "pending" }];
+    h.state.handedOffRuns = [];
+
+    const result = await dispatch(text("order status please"));
+
+    expect(result.consumed).toBe(true);
     expect(startedRuns()).toHaveLength(1);
   });
 });

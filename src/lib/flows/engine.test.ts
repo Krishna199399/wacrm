@@ -6,7 +6,95 @@ import {
   isSuspending,
   isTerminal,
   evaluateConditionPredicate,
+  isHandoffResumeCommand,
+  isInHandoffQuietPeriod,
+  HANDOFF_QUIET_HOURS,
 } from "./engine";
+
+describe("isInHandoffQuietPeriod", () => {
+  const now = new Date("2026-11-24T12:00:00Z");
+  const hoursAgo = (h: number) => new Date(now.getTime() - h * 3600_000).toISOString();
+
+  it("is quiet while pending and the handoff was recent", () => {
+    expect(
+      isInHandoffQuietPeriod({ conversationStatus: "pending", lastHandoffAt: hoursAgo(1), now }),
+    ).toBe(true);
+  });
+
+  it("is not quiet once an agent sets the conversation to open or closed", () => {
+    for (const status of ["open", "closed"]) {
+      expect(
+        isInHandoffQuietPeriod({ conversationStatus: status, lastHandoffAt: hoursAgo(1), now }),
+      ).toBe(false);
+    }
+  });
+
+  it("ends after HANDOFF_QUIET_HOURS even if the agent never changed the status", () => {
+    expect(
+      isInHandoffQuietPeriod({
+        conversationStatus: "pending",
+        lastHandoffAt: hoursAgo(HANDOFF_QUIET_HOURS - 0.1),
+        now,
+      }),
+    ).toBe(true);
+    expect(
+      isInHandoffQuietPeriod({
+        conversationStatus: "pending",
+        lastHandoffAt: hoursAgo(HANDOFF_QUIET_HOURS),
+        now,
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores a manually-pending conversation with no bot handoff", () => {
+    expect(
+      isInHandoffQuietPeriod({ conversationStatus: "pending", lastHandoffAt: null, now }),
+    ).toBe(false);
+  });
+
+  it("treats an unparseable timestamp as no handoff", () => {
+    expect(
+      isInHandoffQuietPeriod({ conversationStatus: "pending", lastHandoffAt: "not-a-date", now }),
+    ).toBe(false);
+  });
+
+  it("honours a custom quietHours", () => {
+    expect(
+      isInHandoffQuietPeriod({
+        conversationStatus: "pending",
+        lastHandoffAt: hoursAgo(3),
+        now,
+        quietHours: 2,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isHandoffResumeCommand", () => {
+  const text = (t: string) => ({ kind: "text" as const, text: t, meta_message_id: "m" });
+
+  it("accepts 'menu' regardless of case, spaces and punctuation", () => {
+    for (const t of ["menu", "Menu", " MENU ", "menu!", "Menu."]) {
+      expect(isHandoffResumeCommand(text(t))).toBe(true);
+    }
+  });
+
+  it("rejects sentences that merely contain the word", () => {
+    expect(isHandoffResumeCommand(text("send me the menu please"))).toBe(false);
+    expect(isHandoffResumeCommand(text(""))).toBe(false);
+  });
+
+  it("never treats a button tap as a typed resume word", () => {
+    expect(
+      isHandoffResumeCommand({
+        kind: "interactive_reply",
+        reply_id: "menu",
+        reply_title: "menu",
+        meta_message_id: "m",
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("matchReplyId", () => {
   it("returns null for nodes without options", () => {
