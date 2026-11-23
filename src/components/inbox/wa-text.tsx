@@ -52,7 +52,7 @@ export function WaText({ text }: { text: string }) {
           href={href}
           target="_blank"
           rel="noopener noreferrer"
-          className="break-all text-wa-link hover:underline"
+          className="break-words text-wa-link hover:underline"
         >
           {clean}
         </a>,
