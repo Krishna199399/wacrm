@@ -237,6 +237,12 @@ export interface Message {
   template_name?: string;
   message_id?: string;
   status: MessageStatus;
+  /**
+   * Meta's reason when `status === 'failed'` after acceptance (webhook
+   * `statuses[].errors[0]`), e.g. 131049 marketing limit. Migration 042.
+   */
+  error_code?: number | null;
+  error_title?: string | null;
   created_at: string;
   reply_to_message_id?: string;
   /**

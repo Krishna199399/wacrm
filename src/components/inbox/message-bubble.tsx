@@ -29,6 +29,8 @@ import {
 import { InteractivePreview } from "@/components/interactive/interactive-preview";
 import { WaText } from "./wa-text";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
+import { describeFailure } from "@/lib/whatsapp/status-errors";
 
 interface MessageBubbleProps {
   message: Message;
@@ -51,7 +53,7 @@ interface MessageBubbleProps {
   showTail?: boolean;
 }
 
-function StatusIcon({ status }: { status: Message["status"] }) {
+function StatusIcon({ status, failure }: { status: Message["status"]; failure?: string }) {
   switch (status) {
     case "sending":
       return <Clock className="h-3 w-3 text-wa-meta" aria-label="Sending" />;
@@ -62,7 +64,21 @@ function StatusIcon({ status }: { status: Message["status"] }) {
     case "read":
       return <CheckCheck className="h-4 w-4 text-wa-tick" aria-label="Read" />;
     case "failed":
-      return <XCircle className="h-3.5 w-3.5 text-red-500" aria-label="Failed" />;
+      // Meta's reason (stored by the webhook): hover on desktop, tap on phones
+      return (
+        <button
+          type="button"
+          title={failure || "Failed"}
+          aria-label={failure ? `Failed: ${failure}` : "Failed"}
+          onClick={(e) => {
+            e.stopPropagation();
+            toast.error(failure || "Failed — Meta did not give a reason.", { duration: 8000 });
+          }}
+          className="inline-flex cursor-help"
+        >
+          <XCircle className="h-3.5 w-3.5 text-red-500" />
+        </button>
+      );
     default:
       return null;
   }
@@ -302,7 +318,12 @@ export function MessageBubble({
         <Star className="h-3 w-3 fill-current" aria-label={t("starred")} />
       )}
       <span>{time}</span>
-      {isAgent && <StatusIcon status={message.status} />}
+      {isAgent && (
+        <StatusIcon
+          status={message.status}
+          failure={message.status === "failed" && (message.error_code || message.error_title) ? describeFailure(message.error_code, message.error_title) : undefined}
+        />
+      )}
     </span>
   );
 

@@ -11,6 +11,7 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { failureReason, type MetaStatusUpdate } from '@/lib/whatsapp/status-errors'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -90,12 +91,7 @@ interface WhatsAppWebhookEntry {
         wa_id: string
       }>
       messages?: WhatsAppMessage[]
-      statuses?: Array<{
-        id: string
-        status: string
-        timestamp: string
-        recipient_id: string
-      }>
+      statuses?: Array<MetaStatusUpdate>
     }
     field: string
   }>
@@ -368,21 +364,38 @@ function isValidStatusTransition(current: string, incoming: string): boolean {
   return ii > ci
 }
 
-async function handleStatusUpdate(status: {
-  id: string
-  status: string
-  timestamp: string
-  recipient_id: string
-}) {
+async function handleStatusUpdate(status: MetaStatusUpdate) {
   // 1) Mirror onto messages (legacy behavior) — Meta's status values
   //    already match the CHECK constraint on messages.status. No
   //    `.select()`: message_id is NOT unique (migration 009 — Meta ids
   //    repeat across numbers), so this updates 0..N rows and must not
   //    assume a single row.
-  const { error: msgErr } = await supabaseAdmin()
+  //
+  //    For `failed`, Meta says WHY (e.g. 131049 marketing limit, 131026
+  //    not on WhatsApp). Log it always, and store it on the message so the
+  //    inbox can show it (columns from migration 042 — if they're missing,
+  //    fall back to the status-only update so nothing else breaks).
+  const reason = failureReason(status)
+  if (reason) {
+    console.warn(`[webhook] message ${status.id} to ${status.recipient_id} FAILED: ${reason.code ?? ''} ${reason.title}`)
+  }
+
+  let { error: msgErr } = await supabaseAdmin()
     .from('messages')
-    .update({ status: status.status })
+    .update(
+      reason
+        ? { status: status.status, error_code: reason.code, error_title: reason.title }
+        : { status: status.status }
+    )
     .eq('message_id', status.id)
+
+  if (msgErr && reason) {
+    // Most likely migration 042 not applied yet — keep the status update working
+    ;({ error: msgErr } = await supabaseAdmin()
+      .from('messages')
+      .update({ status: status.status })
+      .eq('message_id', status.id))
+  }
 
   if (msgErr) {
     console.error('Error updating message status:', msgErr)
