@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { Message } from "@/types";
 import { useTranslations } from "next-intl";
+import { useSwipeToReply } from "./use-swipe-to-reply";
 
 // WhatsApp's own quick-reaction bar starts with these six. Picking the same
 // set keeps the affordance familiar without pulling in a 300KB emoji library.
@@ -112,24 +113,51 @@ export function MessageActions({
     setTouchOpen(false);
   };
 
+  // Phones: swipe the bubble right to reply (WhatsApp gesture). Optimistic
+  // "temp-" messages aren't on WhatsApp yet, so they can't be quoted.
+  const swipe = useSwipeToReply(handleReply, !message.id.startsWith("temp-"));
+
   // Row alignment lives here (not in MessageBubble) so the `group/actions`
   // hover region matches the bubble's content width — hovering empty space
   // in the row no longer reveals the toolbar.
   return (
     <div
       className={cn(
-        "flex w-full",
+        // pan-y + pinch-zoom: the browser keeps vertical scrolling and zoom,
+        // horizontal drags come to us for swipe-to-reply
+        "flex w-full touch-pan-y touch-pinch-zoom",
         isAgent ? "justify-end" : "justify-start",
       )}
       onContextMenu={handleContextMenu}
       onBlur={() => setTouchOpen(false)}
+      {...swipe.handlers}
     >
       {/* `min-w-0` lets this flex child actually respect the 75% cap.
        *  Default `min-width: auto` lets content (a long quote preview,
        *  an unbroken URL) push past the cap and shove the row past
        *  100%, which used to bleed across into the contact-sidebar
        *  area. See issue #165. */}
-      <div className="group/actions relative min-w-0 max-w-[88%] sm:max-w-[75%] xl:max-w-[65%]">
+      <div
+        className={cn(
+          "group/actions relative min-w-0 max-w-[88%] sm:max-w-[75%] xl:max-w-[65%]",
+          // Snap back smoothly on release; follow the finger exactly while dragging
+          !swipe.dragging && "transition-transform duration-200 ease-out",
+        )}
+        style={swipe.offset ? { transform: `translateX(${swipe.offset}px)` } : undefined}
+      >
+        {/* Reply icon revealed in the gap the swipe opens (travels with the bubble) */}
+        {swipe.offset > 0 && (
+          <div
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute right-full top-1/2 mr-2 flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+              swipe.progress >= 1 ? "bg-wa-green text-white" : "bg-muted text-muted-foreground",
+            )}
+            style={{ opacity: swipe.progress, transform: `translateY(-50%) scale(${0.6 + 0.4 * swipe.progress})` }}
+          >
+            <CornerUpLeft className="h-4 w-4" />
+          </div>
+        )}
         {children}
       <div
         data-touch-open={touchOpen || pickerOpen || menuOpen ? "true" : undefined}

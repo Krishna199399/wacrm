@@ -1364,7 +1364,7 @@ export function MessageThread({
       {/* Messages Area */}
       <div
         ref={scrollRef}
-        className="wa-scroll flex-1 overflow-y-auto px-3 pb-4 sm:px-[5%] xl:px-[7%]"
+        className="wa-scroll flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4 sm:px-[5%] xl:px-[7%]"
       >
         {loading ? (
           <div className="flex items-center justify-center py-12">

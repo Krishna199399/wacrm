@@ -256,6 +256,12 @@ export function MessageComposer({
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, []);
 
+  // Starting a reply (toolbar, long-press or swipe) puts the cursor in the
+  // composer so the agent can type straight away — same as WhatsApp.
+  useEffect(() => {
+    if (replyTo?.id) textareaRef.current?.focus();
+  }, [replyTo?.id]);
+
   // Update text and auto-expand if initialText changes (e.g. from deep link query)
   useEffect(() => {
     if (initialText) {
